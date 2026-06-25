@@ -3242,6 +3242,86 @@ secret_top() {
     echo ""
 }
 
+# Purge disabled or expired secrets
+secret_purge_disabled() {
+    local count=0 i
+    local now_s; now_s=$(date +%s)
+    for i in "${!SECRETS_LABELS[@]}"; do
+        local purge=false
+        if [ "${SECRETS_ENABLED[$i]}" = "false" ]; then
+            purge=true
+        elif [ -n "${SECRETS_EXPIRES[$i]}" ] && [ "${SECRETS_EXPIRES[$i]}" != "0" ] && [ "$now_s" -ge "${SECRETS_EXPIRES[$i]}" ] 2>/dev/null; then
+            purge=true
+        fi
+        if [ "$purge" = "true" ]; then
+            log_info "Purging secret: '${SECRETS_LABELS[$i]}'"
+            secret_remove "${SECRETS_LABELS[$i]}" --no-restart
+            count=$((count + 1))
+        fi
+    done
+    if [ "$count" -gt 0 ]; then
+        if is_proxy_running; then restart_proxy_container; fi
+        log_success "Purged ${count} disabled/expired secret(s)"
+    else
+        log_info "No disabled or expired secrets found to purge"
+    fi
+}
+
+# Export subscription link feed (Base64)
+secret_sub() {
+    local server_ip; server_ip=$(get_public_ip)
+    if [ -z "$server_ip" ]; then
+        log_error "Cannot detect server IP"
+        return 1
+    fi
+    local sub_feed="" i
+    for i in "${!SECRETS_LABELS[@]}"; do
+        [ "${SECRETS_ENABLED[$i]}" = "true" ] || continue
+        local full_secret; full_secret=$(build_faketls_secret "${SECRETS_KEYS[$i]}")
+        local tg_link="tg://proxy?server=${server_ip}&port=${PROXY_PORT}&secret=${full_secret}"
+        sub_feed="${sub_feed}${tg_link}\n"
+    done
+    if [ -z "$sub_feed" ]; then
+        log_info "No enabled secrets found for subscription"
+        return 0
+    fi
+    printf "%b" "$sub_feed" | base64 | tr -d '\n'
+    echo ""
+}
+
+# Export users as JSON
+secret_export_json() {
+    local json="[\n" i first=true
+    for i in "${!SECRETS_LABELS[@]}"; do
+        if [ "$first" = "true" ]; then first=false; else json="${json},\n"; fi
+        local enabled_bool=true
+        [ "${SECRETS_ENABLED[$i]}" = "false" ] && enabled_bool=false
+        json="${json}  {\"label\": \"${SECRETS_LABELS[$i]}\", \"key\": \"${SECRETS_KEYS[$i]}\", \"enabled\": ${enabled_bool}, \"max_conns\": ${SECRETS_MAX_CONNS[$i]:-0}, \"max_ips\": ${SECRETS_MAX_IPS[$i]:-0}, \"quota_bytes\": ${SECRETS_QUOTA[$i]:-0}, \"expires_epoch\": ${SECRETS_EXPIRES[$i]:-0}}"
+    done
+    json="${json}\n]\n"
+    printf "%b" "$json"
+}
+
+# Rename secret labels by prefix
+secret_rename_prefix() {
+    local old_p="$1" new_p="$2" count=0 i
+    [ -z "$old_p" ] && { log_error "Usage: mtproxymax secret rename-prefix <old_prefix> <new_prefix>"; return 1; }
+    for i in "${!SECRETS_LABELS[@]}"; do
+        local label="${SECRETS_LABELS[$i]}"
+        if [[ "$label" == "$old_p"* ]]; then
+            local new_label="${new_p}${label#$old_p}"
+            log_info "Renaming '${label}' -> '${new_label}'"
+            secret_rename "$label" "$new_label"
+            count=$((count + 1))
+        fi
+    done
+    if [ "$count" -gt 0 ]; then
+        log_success "Renamed ${count} secret(s) with prefix '${old_p}'"
+    else
+        log_info "No secrets found matching prefix '${old_p}'"
+    fi
+}
+
 # Show current engine config
 show_config() {
     local config="${CONFIG_DIR}/config.toml"
@@ -4330,7 +4410,7 @@ _mtproxymax_completion() {
 
     # Top-level commands
     if [ "$COMP_CWORD" -eq 1 ]; then
-        local cmds="start stop restart status menu install uninstall secret upstream port ip domain mask-backend mask-relay-bytes tg-urls adtag traffic connections metrics logs health doctor info maintenance ban unban bans migrate changelog backup restore backups config uptime notify port-check profile auto-rotate template sweep tune verify history completion speedtest telegram replication rebuild update engine geoblock sni-policy"
+        local cmds="start stop restart status menu install uninstall secret upstream port ip domain mask-backend mask-relay-bytes tg-urls adtag traffic connections metrics logs health doctor info maintenance ban unban bans migrate changelog backup restore backups config uptime notify port-check profile auto-rotate template sweep tune verify history completion speedtest telegram replication rebuild update engine geoblock sni-policy digest ping-dc"
         COMPREPLY=( $(compgen -W "${cmds}" -- "${cur}") )
         return 0
     fi
@@ -4339,7 +4419,7 @@ _mtproxymax_completion() {
     case "$cmd" in
         secret)
             if [ "$COMP_CWORD" -eq 2 ]; then
-                COMPREPLY=( $(compgen -W "add remove list info rotate clone rename enable disable limits setlimit setlimits link qr note stats sort top search archive unarchive archives generate-links extend bulk-extend disable-expired export import reset-traffic tag untag tags logs quota-reset" -- "${cur}") )
+                COMPREPLY=( $(compgen -W "add remove list info rotate clone rename enable disable limits setlimit setlimits link qr note stats sort top search archive unarchive archives generate-links extend bulk-extend disable-expired export import reset-traffic tag untag tags logs quota-reset purge-disabled sub export-json rename-prefix" -- "${cur}") )
             fi
             ;;
         upstream)
@@ -4414,6 +4494,79 @@ run_speedtest() {
     echo ""
     echo -e "  ${DIM}Note: measures server ↔ internet bandwidth, not proxy throughput.${NC}"
     echo ""
+}
+
+run_digest() {
+    echo ""
+    draw_header "EXECUTIVE DIGEST"
+    echo ""
+
+    local _running=false _pstatus="stopped" uptime_str="—"
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${CONTAINER_NAME}$"; then
+        _running=true
+        _pstatus="running"
+        local started_at
+        started_at=$(docker inspect --format '{{.State.StartedAt}}' "$CONTAINER_NAME" 2>/dev/null)
+        local start_epoch=$(_iso_to_epoch "$started_at")
+        local up_secs=$(( $(date +%s) - start_epoch ))
+        uptime_str=$(format_duration "$up_secs")
+    fi
+
+    local traffic_in=0 traffic_out=0 connections=0
+    if [ "$_running" = "true" ]; then
+        read -r traffic_in traffic_out connections <<< "$(get_cumulative_proxy_stats)"
+    fi
+
+    local active=0 disabled=0
+    for i in "${!SECRETS_ENABLED[@]}"; do
+        [ "${SECRETS_ENABLED[$i]}" = "true" ] && active=$((active+1)) || disabled=$((disabled+1))
+    done
+
+    local bot_str="Disabled"
+    [ "$TELEGRAM_ENABLED" = "true" ] && bot_str="Active"
+
+    echo -e "  ${BOLD}Proxy Status:${NC}   $(draw_status "$_pstatus")  (Uptime: ${uptime_str})"
+    echo -e "  ${BOLD}Active Sockets:${NC} ${connections}"
+    echo -e "  ${BOLD}Config Users:${NC}   ${active} active / ${disabled} disabled"
+    echo -e "  ${BOLD}Total Traffic:${NC}  ${SYM_DOWN} $(format_bytes "$traffic_in")  ${SYM_UP} $(format_bytes "$traffic_out")"
+    echo -e "  ${BOLD}Telegram Bot:${NC}   ${bot_str}"
+    echo -e "  ${BOLD}Geo-Blocking:${NC}   ${GEOBLOCK_MODE:-off}"
+    echo ""
+}
+
+run_ping_dc() {
+    echo ""
+    draw_header "TELEGRAM DC BENCHMARK"
+    echo ""
+    echo -e "  ${DIM}Benchmarking TCP handshake latency to global Telegram DCs...${NC}"
+    echo ""
+
+    local dc_names=("DC1 (MIA)" "DC2 (AMS)" "DC3 (MIA)" "DC4 (AMS)" "DC5 (SIN)")
+    local dc_ips=("149.154.175.50" "149.154.167.51" "149.154.175.100" "149.154.167.91" "91.108.56.130")
+
+    local i min_time=999999 best_dc=""
+    for i in "${!dc_ips[@]}"; do
+        local name="${dc_names[$i]}" ip="${dc_ips[$i]}"
+        printf "  ${BOLD}%-12s (%-15s)${NC}  " "$name" "$ip"
+        local time_s
+        time_s=$(curl -o /dev/null -s -w "%{time_connect}" --connect-timeout 4 "http://${ip}:80" 2>/dev/null) || { echo -e "${RED}TIMEOUT / BLOCKED${NC}"; continue; }
+        if [ -n "$time_s" ] && [ "$time_s" != "0.000000" ]; then
+            local time_ms
+            time_ms=$(awk -v t="$time_s" 'BEGIN { printf "%.1f", t * 1000 }')
+            printf "${GREEN}%s ms${NC}\n" "$time_ms"
+            if awk -v cur="$time_s" -v min="$min_time" 'BEGIN { exit !(cur < min) }'; then
+                min_time="$time_s"
+                best_dc="$name"
+            fi
+        else
+            echo -e "${RED}FAILED${NC}"
+        fi
+    done
+    echo ""
+    if [ -n "$best_dc" ]; then
+        echo -e "  🏆 ${BOLD}Fastest DC:${NC} ${CYAN}${best_dc}${NC}"
+        echo ""
+    fi
 }
 
 # ── Show changelog since installed version ──
@@ -8602,6 +8755,21 @@ cli_main() {
                     [ -z "$1" ] && { log_error "Usage: mtproxymax secret import <file>"; return 1; }
                     secret_import "$1"
                     ;;
+                purge-disabled)
+                    check_root
+                    secret_purge_disabled
+                    ;;
+                sub)
+                    secret_sub
+                    ;;
+                export-json)
+                    secret_export_json
+                    ;;
+                rename-prefix)
+                    check_root
+                    [ -z "$1" ] || [ -z "$2" ] && { log_error "Usage: mtproxymax secret rename-prefix <old> <new>"; return 1; }
+                    secret_rename_prefix "$1" "$2"
+                    ;;
                 disable-expired)
                     check_root
                     secret_disable_expired
@@ -8969,6 +9137,16 @@ cli_main() {
 
         speedtest)
             run_speedtest
+            ;;
+
+        digest)
+            load_settings
+            load_secrets
+            run_digest
+            ;;
+
+        ping-dc)
+            run_ping_dc
             ;;
 
         tg-urls)
@@ -9868,11 +10046,11 @@ show_secrets_menu() {
         echo -e "  ${DIM}[6]${NC} Batch add secrets"
         echo -e "  ${DIM}[7]${NC} Batch remove secrets"
         echo -e "  ${DIM}[8]${NC} Edit note/description"
-        echo -e "  ${DIM}[9]${NC} Rename a secret"
+        echo -e "  ${DIM}[9]${NC} Rename secret (single or prefix)"
         echo -e "  ${DIM}[c]${NC} Clone a secret"
         echo -e "  ${DIM}[x]${NC} Extend a secret's expiry"
         echo -e "  ${DIM}[e]${NC} Bulk-extend all expiry dates"
-        echo -e "  ${DIM}[d]${NC} Disable expired secrets"
+        echo -e "  ${DIM}[d]${NC} Disable or purge expired secrets"
         echo -e "  ${DIM}[s]${NC} User stats overview"
         echo -e "  ${DIM}[t]${NC} Sort secrets"
         echo -e "  ${DIM}[i]${NC} Export / Import"
@@ -9986,17 +10164,31 @@ show_secrets_menu() {
                 press_any_key
                 ;;
             9)
-                echo -en "  ${BOLD}Label or # to rename:${NC} "
-                local old_label
-                read -r old_label
-                if [[ "$old_label" =~ ^[0-9]+$ ]] && [ "$old_label" -ge 1 ] && [ "$old_label" -le "${#SECRETS_LABELS[@]}" ]; then
-                    old_label="${SECRETS_LABELS[$((old_label - 1))]}"
-                fi
-                if [ -n "$old_label" ]; then
-                    echo -en "  ${BOLD}New label:${NC} "
-                    local new_label; read -r new_label
-                    [ -n "$new_label" ] && { secret_rename "$old_label" "$new_label" || true; }
-                fi
+                echo -e "  ${DIM}[1] Single rename  [2] Bulk rename by prefix${NC}"
+                local rc; rc=$(read_choice "Choice" "1")
+                case "$rc" in
+                    1)
+                        echo -en "  ${BOLD}Label or # to rename:${NC} "
+                        local old_label; read -r old_label
+                        if [[ "$old_label" =~ ^[0-9]+$ ]] && [ "$old_label" -ge 1 ] && [ "$old_label" -le "${#SECRETS_LABELS[@]}" ]; then
+                            old_label="${SECRETS_LABELS[$((old_label - 1))]}"
+                        fi
+                        if [ -n "$old_label" ]; then
+                            echo -en "  ${BOLD}New label:${NC} "
+                            local new_label; read -r new_label
+                            [ -n "$new_label" ] && { secret_rename "$old_label" "$new_label" || true; }
+                        fi
+                        ;;
+                    2)
+                        echo -en "  ${BOLD}Old prefix to match:${NC} "
+                        local old_p; read -r old_p
+                        if [ -n "$old_p" ]; then
+                            echo -en "  ${BOLD}New prefix:${NC} "
+                            local new_p; read -r new_p
+                            [ -n "$new_p" ] && { secret_rename_prefix "$old_p" "$new_p" || true; }
+                        fi
+                        ;;
+                esac
                 press_any_key
                 ;;
             c|C)
@@ -10031,7 +10223,15 @@ show_secrets_menu() {
                 fi
                 press_any_key
                 ;;
-            d|D) secret_disable_expired; press_any_key ;;
+            d|D)
+                echo -e "  ${DIM}[1] Disable expired  [2] Permanently PURGE disabled/expired${NC}"
+                local dc; dc=$(read_choice "Choice" "1")
+                case "$dc" in
+                    1) secret_disable_expired ;;
+                    2) secret_purge_disabled ;;
+                esac
+                press_any_key
+                ;;
             s|S) secret_stats; press_any_key ;;
             t|T)
                 echo -e "  ${DIM}[1] By traffic  [2] By connections  [3] By date  [4] By name${NC}"
@@ -10045,18 +10245,23 @@ show_secrets_menu() {
                 press_any_key
                 ;;
             i|I)
-                echo -e "  ${DIM}[1] Export to file  [2] Import from file${NC}"
+                echo -e "  ${DIM}[1] Export CSV  [2] Import CSV  [3] Export JSON${NC}"
                 local io_choice; io_choice=$(read_choice "Choice" "0")
                 case "$io_choice" in
                     1)
                         local exp_file="/tmp/mtproxymax-secrets-$(date +%Y%m%d).csv"
                         secret_export > "$exp_file"
-                        log_success "Exported to ${exp_file}"
+                        log_success "Exported CSV to ${exp_file}"
                         ;;
                     2)
                         echo -en "  ${BOLD}File path:${NC} "
                         local imp_file; read -r imp_file
                         [ -n "$imp_file" ] && { secret_import "$imp_file" || true; }
+                        ;;
+                    3)
+                        local exp_file="/tmp/mtproxymax-secrets-$(date +%Y%m%d).json"
+                        secret_export_json > "$exp_file"
+                        log_success "Exported JSON to ${exp_file}"
                         ;;
                 esac
                 press_any_key
@@ -10259,6 +10464,13 @@ show_links_menu() {
 
         show_qr "$https_link"
     done
+
+    echo ""
+    local sub_b64; sub_b64=$(secret_sub 2>/dev/null)
+    if [ -n "$sub_b64" ]; then
+        echo -e "  ${BOLD}Base64 Subscription Feed:${NC}"
+        echo -e "  ${CYAN}${sub_b64}${NC}"
+    fi
 
     # Offer to send via Telegram
     if [ "$TELEGRAM_ENABLED" = "true" ]; then
@@ -11410,6 +11622,8 @@ show_info_menu() {
         echo -e "  ${BRIGHT_CYAN}[n]${NC}  View Changelog"
         echo -e "  ${BRIGHT_CYAN}[v]${NC}  Run Verify (install check)"
         echo -e "  ${BRIGHT_CYAN}[s]${NC}  Speed Test (outbound bandwidth)"
+        echo -e "  ${BRIGHT_CYAN}[l]${NC}  Datacenter Latency Benchmark"
+        echo -e "  ${BRIGHT_CYAN}[g]${NC}  Executive Digest Summary"
         echo -e "  ${BRIGHT_CYAN}[h]${NC}  Audit History"
         echo ""
         echo -e "  ${DIM}[0]${NC}  Back"
@@ -11436,6 +11650,8 @@ show_info_menu() {
             n|N) show_changelog; press_any_key ;;
             v|V) run_verify; press_any_key ;;
             s|S) run_speedtest; press_any_key ;;
+            l|L) run_ping_dc; press_any_key ;;
+            g|G) run_digest; press_any_key ;;
             h|H) show_history 50; press_any_key ;;
             0|"") return ;;
             *) ;;
