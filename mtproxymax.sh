@@ -26,8 +26,8 @@ REPLICATION_FILE="${INSTALL_DIR}/replication.conf"
 REPLICATION_SSH_DIR="${INSTALL_DIR}/.ssh"
 CONTAINER_NAME="mtproxymax"
 DOCKER_IMAGE_BASE="mtproxymax-telemt"
-TELEMT_MIN_VERSION="3.4.19"
-TELEMT_COMMIT="987c53c"  # Pinned: v3.4.19 — Fix config API corrupting nested tables, client_mss_bulk, relay mode fixes
+TELEMT_MIN_VERSION="3.4.22"
+TELEMT_COMMIT="ed1895d"  # Pinned: v3.4.22 — Secure & VersionD Outbound Paddings Fix, Synlimit V2, ME source IP restore
 GITHUB_REPO="SamNet-dev/MTProxyMax"
 REGISTRY_IMAGE="ghcr.io/samnet-dev/mtproxymax-telemt"
 
