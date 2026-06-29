@@ -9435,22 +9435,18 @@ cli_main() {
             ;;
 
         shield)
-            shift
             run_shield "$@"
             ;;
 
         stealth)
-            shift
             run_stealth_preset "$@"
             ;;
 
         clamp-mss)
-            shift
             run_clamp_mss "$@"
             ;;
 
         domain-pool)
-            shift
             run_domain_pool "$@"
             ;;
 
