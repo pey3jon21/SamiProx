@@ -4784,10 +4784,12 @@ apply_firewall_rules() {
         while iptables -D INPUT -p tcp --dport "${PROXY_PORT}" -m conntrack --ctstate NEW -m recent --set --name mtproxy_syn -m comment --comment "mtproxymax_shield" 2>/dev/null; do :; done
         while iptables -D INPUT -p tcp --dport "${PROXY_PORT}" -m conntrack --ctstate NEW -m recent --update --seconds 5 --hitcount 15 --name mtproxy_syn -j DROP 2>/dev/null; do :; done
         while iptables -D INPUT -p tcp --dport "${PROXY_PORT}" -m conntrack --ctstate NEW -m recent --update --seconds 5 --hitcount 15 --name mtproxy_syn -m comment --comment "mtproxymax_shield" -j DROP 2>/dev/null; do :; done
-        while iptables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN --dport "${PROXY_PORT}" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null; do :; done
-        while iptables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN --dport "${PROXY_PORT}" -m comment --comment "mtproxymax_mss" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null; do :; done
-        while iptables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN --sport "${PROXY_PORT}" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null; do :; done
-        while iptables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN --sport "${PROXY_PORT}" -m comment --comment "mtproxymax_mss" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null; do :; done
+        for _chain in FORWARD OUTPUT POSTROUTING; do
+            while iptables -t mangle -D "$_chain" -p tcp --tcp-flags SYN,RST SYN --dport "${PROXY_PORT}" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null; do :; done
+            while iptables -t mangle -D "$_chain" -p tcp --tcp-flags SYN,RST SYN --dport "${PROXY_PORT}" -m comment --comment "mtproxymax_mss" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null; do :; done
+            while iptables -t mangle -D "$_chain" -p tcp --tcp-flags SYN,RST SYN --sport "${PROXY_PORT}" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null; do :; done
+            while iptables -t mangle -D "$_chain" -p tcp --tcp-flags SYN,RST SYN --sport "${PROXY_PORT}" -m comment --comment "mtproxymax_mss" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null; do :; done
+        done
     fi
 
     if [ "${STEALTH_SHIELD:-false}" = "true" ] && command -v iptables >/dev/null 2>&1; then
@@ -4796,8 +4798,10 @@ apply_firewall_rules() {
     fi
 
     if [ "${STEALTH_MSS_CLAMP:-false}" = "true" ] && command -v iptables >/dev/null 2>&1; then
-        iptables -t mangle -I FORWARD 1 -p tcp --tcp-flags SYN,RST SYN --dport "${PROXY_PORT}" -m comment --comment "mtproxymax_mss" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
-        iptables -t mangle -I FORWARD 2 -p tcp --tcp-flags SYN,RST SYN --sport "${PROXY_PORT}" -m comment --comment "mtproxymax_mss" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
+        for _chain in FORWARD OUTPUT POSTROUTING; do
+            iptables -t mangle -I "$_chain" 1 -p tcp --tcp-flags SYN,RST SYN --dport "${PROXY_PORT}" -m comment --comment "mtproxymax_mss" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
+            iptables -t mangle -I "$_chain" 2 -p tcp --tcp-flags SYN,RST SYN --sport "${PROXY_PORT}" -m comment --comment "mtproxymax_mss" -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
+        done
     fi
     apply_qos_rules
     apply_port_pool_rules
@@ -4896,6 +4900,10 @@ run_clamp_mss() {
             echo -e "\n  📉 ${BOLD}TCP MSS Clamping Status:${NC}"
             if [ "${STEALTH_MSS_CLAMP:-false}" = "true" ]; then
                 echo -e "     Status: ${GREEN}ENABLED${NC} (Active alignment on port ${PROXY_PORT})"
+                if command -v iptables >/dev/null 2>&1; then
+                    local _rule_cnt; _rule_cnt=$(iptables -t mangle -S 2>/dev/null | grep -c "mtproxymax_mss" || echo 0)
+                    echo -e "     Kernel Hooks: ${CYAN}${_rule_cnt} Netfilter rules active across FORWARD, OUTPUT & POSTROUTING${NC}"
+                fi
             else
                 echo -e "     Status: ${YELLOW}DISABLED${NC}"
             fi
@@ -5037,8 +5045,17 @@ run_dpi_inspect() {
     # Check 5: TCP MSS Clamping
     printf "  [5/5] TCP MSS Clamping (PMTU): "
     if [ "${STEALTH_MSS_CLAMP:-false}" = "true" ]; then
-        echo -e "${GREEN}ENABLED${NC}"
-        score=$((score + 20))
+        local mss_rules=0
+        if command -v iptables >/dev/null 2>&1; then
+            mss_rules=$(iptables -t mangle -S 2>/dev/null | grep -c "mtproxymax_mss" || echo 0)
+        fi
+        if [ "$mss_rules" -gt 0 ] 2>/dev/null; then
+            echo -e "${GREEN}ENABLED (${mss_rules} kernel hooks active)${NC}"
+            score=$((score + 20))
+        else
+            echo -e "${GREEN}ENABLED${NC}"
+            score=$((score + 20))
+        fi
     else
         echo -e "${YELLOW}DISABLED${NC}"
     fi
