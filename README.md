@@ -1313,118 +1313,70 @@ mtproxymax update                       # Check for script + engine updates
 
 ### v1.3.0 — The Mega-Release (20 Enterprise Features Across 4 Suites)
 
-- **Suite 1 (High-Performance Networking & Security Expansion):**
-  - Added **Lightweight Eco-Mode (`mtproxymax eco-mode`)** tuning kernel TCP buffers (`rmem_max`/`wmem_max` to `131072`) for stable 256MB/512MB VPS operation with persistent background enforcement.
-  - Added **Active Probe Decoy Routing (`mtproxymax decoy`)** directing unauthorized scanners to custom fallback URLs.
-  - Added **Country Geo-Fencing (`mtproxymax geofence`)** with high-speed CIDR allowlist/blocklist firewall rules.
-  - Added **Network Resilience Chaos Engineering (`mtproxymax chaos-test`)** simulating latency, packet loss, and socket drops via Linux `tc netem`.
-  - Added **IP Reputation & Clean-Score Inspector (`mtproxymax ip-score`)** querying Spamhaus, AbuseIPDB, and regional blocklists.
-- **Suite 2 (Advanced User & Quota Governance):**
-  - Added **Shared Quota Pools (`mtproxymax pool`)** grouping multiple member accounts under a single shared bandwidth ceiling with alert flood throttling.
-  - Added **Dynamic Calendar Quota Scheduling (`mtproxymax calendar`)** enabling unmetered weekend data passes and +5GB Holiday Airdrop bonuses on major holidays.
-  - Added **Custom Expiry Action Policies (`mtproxymax expire-action`)** automating account disablement, archiving, or purging upon expiration.
-  - Added **Real-Time Interactive Leaderboard (`mtproxymax top-users`)** ranking top users by bandwidth, connections, and transfer speeds.
-  - Added **Automated High-Velocity Traffic Alerts (`mtproxymax traffic-alert`)** monitoring rolling transfer velocity and alerting on burst consumption (>10GB/hour).
-- **Suite 3 (Enterprise DevOps & Multi-Server Automation):**
-  - Added **1-Click Emergency Server Evacuation (`mtproxymax evacuate`)** bundling secrets, pools, and configs into an encrypted tarball transferred via SSH/rsync in <5s.
-  - Added **Multi-Channel Enterprise Webhook Dispatcher (`mtproxymax webhook`)** sending RFC-compliant JSON alerts to Discord, Slack, Mattermost, and DingTalk.
-  - Added **Printable QR Code Onboarding Sheets (`mtproxymax qr-sheet`)** generating HTML/PDF catalogs of user QR codes.
-  - Added **Executive Monthly Audit Reports (`mtproxymax export-report`)** producing CSV/HTML/JSON billing and compliance summaries.
-  - Added **Telegram Datacenter Route Optimizer (`mtproxymax dc-optimize`)** probing latency to DC1–DC5 and tuning kernel routing tables.
-- **Suite 4 (Diagnostic, Resiliency & TUI Dashboard Enhancements):**
-  - Added **Interactive Live Telemetry Dashboard (`mtproxymax live-diag`)** with rolling ASCII graphs for traffic, CPU/RAM usage, and SYN shield tarpits.
-  - Added **Autonomous SNI Cover Domain Hunter (`mtproxymax auto-sni`)** automatically scanning and replacing blocked TLS cover domains.
-  - Added **Autonomous Upstream Failover Watchdog (`mtproxymax failover`)** monitoring upstream ping health every minute and failing over after 3 consecutive failures.
-  - Added **TLS Certificate Fingerprint Randomizer (`mtproxymax cert-shield`)** mutating TLS extension ordering and ALPN banners every 12 hours.
-  - Added **Customizable TUI Color Themes (`mtproxymax tui-theme`)** featuring Cyberpunk Matrix Green, Electric Cyan, Dark Mode, and Classic Retro aesthetics.
-  - Performed deep 4-round POSIX architectural audit guaranteeing atomic file renaming, O(1) CPU efficiency, regex collision immunity, and zero race conditions.
+- **Networking & Security:** Added **Eco-Mode (`eco-mode`)** for micro-servers, **Decoy Routing (`decoy`)**, **Country Geo-Fencing (`geofence`)**, **Chaos Testing (`chaos-test`)**, and **IP Score Inspector (`ip-score`)**.
+- **User Governance:** Added **Shared Quota Pools (`pool`)**, **Calendar Scheduling (`calendar`)**, **Expiry Action Policies (`expire-action`)**, **Interactive Leaderboard (`top-users`)**, and **Traffic Burst Alerts (`traffic-alert`)**.
+- **DevOps & Automation:** Added **1-Click Emergency Evacuation (`evacuate`)**, **Multi-Channel Webhooks (`webhook`)**, **Printable QR Sheets (`qr-sheet`)**, **Monthly Audit Reports (`export-report`)**, and **DC Route Optimizer (`dc-optimize`)**.
+- **Diagnostics & TUI:** Added **Live Telemetry Dashboard (`live-diag`)**, **Autonomous SNI Hunter (`auto-sni`)**, **Upstream Failover Watchdog (`failover`)**, **TLS Cert Randomizer (`cert-shield`)**, and **TUI Themes (`tui-theme`)**.
+- **Hardening:** Deep 4-round POSIX architectural audit guaranteeing atomic file renaming, O(1) CPU efficiency, and zero race conditions.
 
 ### v1.2.0 — Enterprise Commercial & Shield Suite, Next-Gen Anti-DPI, QoS Bandwidth Shaping & DevOps Clustering Suite
 
-- **Commercial Voucher & Gift Code System (`mtproxymax voucher`):** Batch generation of `MTP-XXXX-XXXX` voucher codes with custom quotas and validity durations stored in `vouchers.conf`. Supports local and Telegram bot (`/redeem`) code redemption.
-- **Role-Based Access Control (`mtproxymax admin`):** Multi-tier Telegram bot admin authorization governing `superadmin` and `reseller` privileges in `admins.conf`. Protects destructive operations while delegating voucher management.
-- **Decoupled Self-Service Status Portal (`mtproxymax portal`):** Zero-dependency static HTML glassmorphism web dashboard (`index.html`) fed by periodic JSON engine exports (`status.json`, `users.json`) displaying live uptime and bandwidth stats.
-- **Automated Hostile Threat Scanner Shield (`mtproxymax scanner-shield`):** High-speed kernel `ipset` hash sets (`mtproxymax-scanners`) importing and dropping traffic from Shodan, Censys, and Shadowserver mass probe subnets before hitting Docker container sockets.
-- **Active DPI Forensics (`mtproxymax dpi-inspect`):** 5-point heuristic diagnostic engine evaluating cover domain reachability, certificate parity, SYN shield state, replay cache depth, and MSS clamping to compute an interactive 0-100 posture score.
-- **Self-Healing Cover Watchdog (`mtproxymax cover-watchdog`):** Automated background daemon probing primary cover domain health every 60s, rotating to backup SNI pool candidates upon censorship or HTTP 5xx failures.
-- **Emergency Panic Lockdown (`mtproxymax lockdown`):** One-click panic posture activation enabling SYN tarpits, Ultra-Stealth conntrack hardening, and MSS clamping via CLI or remote bot commands (`/mp_lockdown`).
-- **Multi-Port Listener Pool (`mtproxymax port-pool`):** Listen on multiple fallback TCP ports simultaneously via automated kernel `iptables` NAT redirects without extra container runtime overhead.
-- **Linux Kernel QoS Shaping (`mtproxymax qos`):** Hierarchical token bucket (`tc`) and hashlimit rate limiter restricting per-IP bandwidth consumption (e.g., 5 Mbps per IP).
-- **Happy Hours Quota Exclusions (`mtproxymax happy-hours`):** Configures unmetered schedule windows where traffic bypasses user monthly quota accounting.
-- **Telegram Bot Command Center (`mtproxymax secret qr`, `/mp_revoke`, `/mp_digest`):** 21 administrative chat commands plus multi-engine ASCII console QR rendering and automated expiry reminder dispatches (`mtproxymax notify-expiry`).
-- **DevOps Clustering & Snapshot Suite (`export-lb`, `ddns`, `diag-dump`, `snapshot`):** Layer-4 HAProxy/Nginx PROXYv2 exporter, automated Cloudflare Dynamic DNS updater, forensics dump archiver, and point-in-time configuration tarball snapshots.
-- **Operations & Onboarding Suite (`backup send-tg`, `daily-report`, `ssh-shield`, `net-grade`, `onboard`):** Direct cloud backups to Telegram bot admin chat, scheduled morning executive briefings, fail2ban SSH brute-force intrusion shielding, network quality grading benchmark, and smart user onboarding wizard.
-- **Performance & Self-Healing Suite (`tcp-boost`, `tcp-clean`, `socket-boost`, `tls-pad`, `honeypot`, `tcp-fastpath`, `ram-tune`, `port-hop`, `cpu-tune`, `leak-scan`, `cert-check`, `clone-link`, `bootstrap`, `heal`, `auto-heal`):** Linux Kernel TCP BBR booster, aggressive keep-alive dead mobile socket reaper, ultra-low latency socket queue booster, dynamic FakeTLS record padding & length randomization, active probe decoy honeypot redirection, TCP fast-path window scaling & MTU probing, hardware-aware dynamic RAM buffer auto-tuning, kernel NAT port range shadowing for anti-throttling, multi-core IRQ packet spreading (RPS/RFS) with container fallback, multi-IP subscription sharing scanner, TLS cover domain certificate health verifier, one-line Base64 server replication cloner/bootstrapper, and emergency non-disruptive RAM/socket self-healer.
+- **Commercial Suite:** Added **Voucher & Gift Code System (`voucher`)**, **Role-Based Access Control (`admin`)** for Telegram bot tiers, and **Static Status Portal (`portal`)**.
+- **Threat & Anti-DPI Defenses:** Added **Kernel Scanner Shield (`scanner-shield`)**, **Active DPI Forensics (`dpi-inspect`)**, **Cover Watchdog (`cover-watchdog`)**, **Emergency Lockdown (`lockdown`)**, and **Multi-Port Listeners (`port-pool`)**.
+- **QoS & Operations:** Added **Linux Kernel QoS Shaping (`qos`)**, **Happy Hours Quota Exclusions (`happy-hours`)**, **21 Telegram Bot Commands**, and **Telegram Cloud Backups (`backup send-tg`)**.
+- **DevOps & Self-Healing:** Added **HAProxy/Nginx Exporter (`export-lb`)**, **Cloudflare DDNS (`ddns`)**, **Config Snapshots (`snapshot`)**, **TCP BBR Booster (`tcp-boost`)**, **Socket Reaper (`tcp-clean`)**, **Socket Booster (`socket-boost`)**, **TLS Padding (`tls-pad`)**, **RAM Auto-Tuning (`ram-tune`)**, and **1-Line Server Cloner (`clone-link`)**.
 
 ### v1.1.0 — Anti-DPI & Stealth Defenses Expansion
 
-- **Kernel SYN Shield (`mtproxymax shield`):** Built-in iptables/nftables rate limiter (`conntrack` + `recent` module) that tarpits aggressive active probes (>15 SYN/5s per IP) before they reach application layer memory.
-- **Stealth Presets (`mtproxymax stealth`):** Hot-swappable anti-replay hardening (`normal` vs `ultra`). Ultra reduces the replay window to 180s, expands nonce cache to 131,072 entries, and drops unknown SNI probes.
-- **TCP MSS Clamping (`mtproxymax clamp-mss`):** Prevents MTU black hole drops and packet fragmentation via TCP FORWARD mangle hooks `--clamp-mss-to-pmtu`.
-- **Multi-Domain SNI Pool (`mtproxymax domain-pool`):** Rotate between multiple high-reputation cover domains (`tls_domains = ["dom1.com", "dom2.com"]`) within the same engine instance to evade single-domain DPI throttling.
-- **Auto Cert Synchronization (`sync_domain_cert_len`):** Connects to cover domain every 24h via OpenSSL, measures live DER payload size, and dynamically synchronizes `fake_cert_len` to evade static certificate heuristics.
-- **Interactive TUI Menu:** Dedicated ASCII dashboard (`show_stealth_menu`) under Settings `[s]` and Security `[5]`.
+- **Kernel SYN Shield (`shield`):** Built-in rate limiter tarpitting aggressive probes (>15 SYN/5s per IP).
+- **Stealth Presets (`stealth`):** Hot-swappable anti-replay hardening (`normal` vs `ultra`).
+- **TCP MSS Clamping (`clamp-mss`):** Prevents MTU black hole drops and packet fragmentation.
+- **Multi-Domain SNI Pool (`domain-pool`):** Rotate between multiple cover domains within the same instance.
+- **Auto Cert Synchronization (`sync_domain_cert_len`):** Dynamically synchronizes `fake_cert_len` every 24h.
 
-### v1.0.10 — Executive Digest, DC Latency Benchmark, Base64 Subscriptions & Bulk Tools
+### v1.0.10 — Executive Digest, DC Benchmarking & Base64 Subscriptions
 
-- **Executive Digest (`mtproxymax digest`):** Instant ASCII summary board aggregating uptime, active socket counts, traffic totals, and Telegram bot daemon status
-- **Datacenter Benchmark (`mtproxymax ping-dc`):** Live TCP handshake latency test against Telegram global datacenters DC1 through DC5 with fastest-DC detection
-- **Base64 Subscriptions (`mtproxymax secret sub`):** Auto-generates standard Base64 proxy feeds compatible with third-party client auto-updaters
-- **JSON Export (`mtproxymax secret export-json`):** Full user database dump formatted as JSON for external integrations
-- **Cleanup & Bulk Tools:** Permanently purge disabled/expired records (`secret purge-disabled`) and bulk rename secret labels by prefix (`secret rename-prefix`)
+- Added **Executive Digest (`digest`)** dashboard, **Datacenter Benchmark (`ping-dc`)** against Telegram DC1-DC5, **Base64 Subscriptions (`secret sub`)**, **JSON Database Export (`secret export-json`)**, and bulk cleanup tools (`purge-disabled`, `rename-prefix`).
 
 ### v1.0.9 — Engine v3.4.18, TLS Stealth & ME/MR Hardening
 
-- Upgraded telemt engine to v3.4.18 (7 upstream releases with TLS profile spoofing and async ME/MR queue backpressure)
-- Added user quota rate limit API route `GET /v1/stats/users/quota` and exclusive masking mode
-- Docker tmpfs cache and log rotation improvements
+- Upgraded telemt engine to v3.4.18 (TLS profile spoofing, async ME/MR queue backpressure), added user quota rate limit API, and improved Docker tmpfs caching.
 
 ### v1.0.8 — Security Hardening & Persistent Quotas
 
-- Upgraded telemt engine to v3.4.11 (constant-time API auth, PROXY protocol pre-validation, bounded connections)
-- Persistent per-user quota tracking (`quota_state_path`) and runtime quota reset API
-- Added Telegram bot configuration options: report interval, server notification label, and down/recovery alert toggles
+- Upgraded engine to v3.4.11, added persistent per-user quota tracking (`quota_state_path`), runtime quota reset API, and customizable Telegram bot alert toggles.
 
 ### v1.0.7 — Tags, Templates, Migration, Maintenance & IP Banlist
 
-- Added secret tagging (`secret tag/untag`), reusable limit templates (`template save/apply`), and bulk operations
-- Added tarball-based server migration (`migrate export/import`) and graceful maintenance mode (`maintenance on/off`)
-- Added persistent iptables IP banlist (`ban/unban`), AES-256 encrypted backups, and engine parameter tuning (`tune`)
+- Added secret tagging (`secret tag/untag`), reusable limit templates (`template`), tarball migration (`migrate`), graceful maintenance mode (`maintenance`), persistent iptables IP banlist (`ban/unban`), AES-256 backups, and engine tuning (`tune`).
 
 ### v1.0.6 — Profiles, Archive, Search & Info
 
-- Added user detail inspection (`secret info`), search (`secret search`), top rankings, and soft-delete archiving
-- Added named configuration profiles (`profile save/load`) and external port reachability tester (`port-check`)
-- Added custom mask backend routing (`mask-backend`) and scriptable `uptime` command
+- Added user detail inspection (`info`), search (`search`), top rankings, soft-delete archiving, named config profiles (`profile`), port reachability tester (`port-check`), and custom mask routing (`mask-backend`).
 
 ### v1.0.5 — Engine v3.4.8, Clone, Bulk-Extend & Doctor
 
-- Upgraded telemt engine to v3.4.8 with bounded relay queues and TLS 1.3 fronting correctness
-- Added user duplication (`secret clone`), expiry extension (`secret extend`), and active connections view
-- Added comprehensive server diagnostics (`doctor`) and instant long-polling Telegram bot response
+- Upgraded engine to v3.4.8, added user duplication (`clone`), expiry extension (`extend`), active connections view, comprehensive diagnostics (`doctor`), and long-polling bot response.
 
 ### v1.0.4 — Master-Slave Replication & Metrics Dashboard
 
-- Added master/slave configuration replication (`replication setup`) via automated rsync+SSH sync
-- Upgraded engine to v3.3.39 and introduced live Prometheus metrics console (`metrics live`)
-- Added strict vs permissive unknown SNI handling policies (`sni-policy`)
+- Added master/slave configuration replication (`replication setup`) via rsync+SSH, upgraded engine to v3.3.39, introduced live Prometheus metrics console (`metrics live`), and SNI handling policies (`sni-policy`).
 
 ### v1.0.3 — Quota Enforcement, Multi-Port & Hot-Reload
 
-- Added multi-port listener support, secret hot-reloading, and quota auto-disable at 100% consumption
-- Introduced JSON monitoring outputs, connection activity logs, and country geo-blocking whitelist
+- Added multi-port listener support, secret hot-reloading, quota auto-disable at 100% consumption, JSON monitoring outputs, connection logs, and country geo-blocking whitelist.
 
 ### v1.0.2 — Persistent Traffic Accounting
 
-- Atomic traffic counter persistence surviving restarts and server reboots with batched stats loading
+- Added atomic traffic counter persistence surviving restarts and server reboots with batched stats loading.
 
 ### v1.0.1 — Batch User Operations
 
-- Added multi-user batch creation and removal (`secret add-batch`, `secret remove-batch`)
+- Added multi-user batch creation and removal (`secret add-batch`, `secret remove-batch`).
 
 ### v1.0.0 — Initial Release
 
-- Initial launch of MTProxyMax with telemt 3.x Rust engine, interactive TUI, CLI, FakeTLS, Telegram bot, and geo-blocking
+- Initial launch of MTProxyMax with telemt 3.x Rust engine, interactive TUI, CLI, FakeTLS, Telegram bot, and geo-blocking.
 
 ---
 
