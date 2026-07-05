@@ -39,7 +39,7 @@ sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/SamNet-dev/MTProxyM
 
 Most MTProxy tools give you a proxy and a link. That's it. MTProxyMax gives you a **full management platform**:
 
-- 🏆 **v1.3.0 Mega-Release** — 20 new enterprise features across Networking, Quota Governance, DevOps Automation, and Live Telemetry
+- 🏆 **Comprehensive Enterprise Platform** — Over 30 enterprise features across Networking, Quota Governance, DevOps Automation, and Live Telemetry
 - 👥 **Shared Quota Pools & Calendar Schedules** — Group users under shared bandwidth ceilings (`pool`) and offer unmetered weekend/holiday data passes (`calendar`)
 - ⚡ **Autonomous Failover & SNI Hunter** — Self-healing upstream watchdog (`failover`), automated cover domain hunting (`auto-sni`), and TLS fingerprint randomization (`cert-shield`)
 - 🚑 **1-Click Emergency Evacuation & Webhooks** — Instant SSH/rsync server migration (`evacuate`) and multi-channel JSON notifications for Discord, Slack, and DingTalk (`webhook`)
@@ -199,7 +199,7 @@ Activating lockdown instantly engages the **Kernel SYN Shield**, activates **Ult
 
 ---
 
-### 🌐 v1.3.0 Suite 1: High-Performance Networking & Security Expansion
+### 🌐 High-Performance Networking & Security Suite
 
 - **Lightweight Eco-Mode (`mtproxymax eco-mode [on|off|status]`):** Optimizes Linux kernel TCP memory allocations (`rmem_max`/`wmem_max` to `131072`), reducing RAM footprint by up to 45% for stable operation on 256MB/512MB micro-servers. Persistent watchdog re-enforces buffers during background sweeps.
 - **Active Probe Decoy Routing (`mtproxymax decoy [set|clear|status]`):** Configures kernel redirection so unauthorized HTTP/TLS scanners lacking a valid MTProto secret are cleanly forwarded to a custom fallback URL or honeypot.
@@ -209,7 +209,7 @@ Activating lockdown instantly engages the **Kernel SYN Shield**, activates **Ult
 
 ---
 
-### 👥 v1.3.0 Suite 2: Advanced User & Quota Governance
+### 👥 Advanced User & Quota Governance Suite
 
 - **Shared Quota Pools (`mtproxymax pool [create|add|remove|list]`):** Group multiple member accounts under a single shared bandwidth ceiling (e.g. 100GB shared among a 5-person team). When the pool limit is reached, all member links are automatically paused without spamming alerts.
 - **Dynamic Calendar Quota Scheduling (`mtproxymax calendar [weekend|holiday|status]`):** Provide unmetered free data passes on weekends or major holidays (with automatic +5GB Holiday Airdrop integration into traffic calculations).
@@ -219,7 +219,7 @@ Activating lockdown instantly engages the **Kernel SYN Shield**, activates **Ult
 
 ---
 
-### 🚀 v1.3.0 Suite 3: Enterprise DevOps & Multi-Server Automation
+### 🚀 Enterprise DevOps & Multi-Server Automation Suite
 
 - **1-Click Emergency Server Evacuation (`mtproxymax evacuate [ip|bundle]`):** Instantly packs all secrets, pools, and configuration files into an encrypted portable archive and transfers it via SSH/rsync to a standby backup server in under 5 seconds.
 - **Multi-Channel Enterprise Webhook Dispatcher (`mtproxymax webhook [add|remove|list|test]`):** Sends RFC-compliant, markdown-stripped, escaped JSON event notifications to Discord, Slack, Mattermost, or DingTalk when lockdowns, failovers, or quota breaches occur.
@@ -229,7 +229,7 @@ Activating lockdown instantly engages the **Kernel SYN Shield**, activates **Ult
 
 ---
 
-### 🩺 v1.3.0 Suite 4: Diagnostic, Resiliency & TUI Dashboard Enhancements
+### 🩺 Diagnostic, Resiliency & TUI Dashboard Suite
 
 - **Interactive Live Telemetry Dashboard (`mtproxymax live-diag`):** Real-time ASCII dashboard displaying rolling traffic graphs, CPU/RAM usage, active connection counts, and SYN shield tarpit interceptions.
 - **Autonomous SNI Cover Domain Hunter (`mtproxymax auto-sni [on|off|status]`):** Automatically scans and benchmarks high-reputation TLS cover domains in your region to replace blocked SNIs without human intervention.
