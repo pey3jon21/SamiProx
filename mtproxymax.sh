@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════
-#  MTProxyMax v1.0 — The Ultimate Telegram Proxy Manager
+#  MTProxyMax — The Ultimate Telegram Proxy Manager
 #  Copyright (c) 2026 SamNet Technologies
 #  https://github.com/SamNet-dev/MTProxyMax
 #
@@ -11,7 +11,7 @@ set -eo pipefail
 export LC_NUMERIC=C
 
 # ── Section 1: Initialization ────────────────────────────────
-VERSION="1.2.0"
+VERSION="1.3.0"
 SCRIPT_NAME="mtproxymax"
 INSTALL_DIR="/opt/mtproxymax"
 CONFIG_DIR="${INSTALL_DIR}/mtproxy"
@@ -163,7 +163,7 @@ SCANNER_SHIELD_ENABLED="false"
 PORTAL_ENABLED="false"
 PORTAL_PORT="8080"
 
-# Auto-rotate and backup retention (v1.0.7)
+# Auto-rotate and backup retention
 SECRET_AUTO_ROTATE_DAYS="0"     # 0 = disabled; otherwise rotate secrets older than N days
 BACKUP_RETENTION_DAYS="30"      # Auto-clean backups older than N days (0 = keep all)
 
@@ -729,7 +729,7 @@ TELEGRAM_SERVER_LABEL='${TELEGRAM_SERVER_LABEL}'
 # Auto-Update
 AUTO_UPDATE_ENABLED='${AUTO_UPDATE_ENABLED}'
 
-# Secret auto-rotate (v1.0.7)
+# Secret auto-rotate
 SECRET_AUTO_ROTATE_DAYS='${SECRET_AUTO_ROTATE_DAYS}'
 BACKUP_RETENTION_DAYS='${BACKUP_RETENTION_DAYS}'
 
@@ -3645,7 +3645,7 @@ profile_delete() {
     log_success "Profile '${name}' deleted"
 }
 
-# ── v1.0.7 Features ──────────────────────────────────────────
+# ── Secret Tagging & Template Features ─────────────────────────
 
 # ── Secret Tags (stored in separate file: label|tag1,tag2,tag3) ──
 _TAGS_FILE="${INSTALL_DIR}/secrets_tags.conf"
@@ -5718,7 +5718,7 @@ run_snapshot() {
     esac
 }
 
-# ── v1.3.0 Suite 1: Operational & Analytics Suite ──────────────────────────────
+# ── Suite 1: Operational & Analytics Suite ─────────────────────────────────────
 
 run_top() {
     local mode="${1:-loop}"
@@ -5735,7 +5735,7 @@ run_top() {
         local mem_str; mem_str=$(free -m 2>/dev/null | awk '/^Mem:/ {printf "%dMB / %dMB (%.0f%%)", $3, $2, $3/$2*100}' || awk '/^MemTotal:/ {t=$2} /^MemAvailable:/ {a=$2} END {if(t>0) printf "%dMB / %dMB (%.0f%%)", (t-a)/1024, t/1024, (t-a)/t*100}' /proc/meminfo 2>/dev/null || echo "unknown")
         
         echo -e "${BOLD}╔══════════════════════════════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${BOLD}║       🚀 MTProxyMax v1.3.0 Live Terminal Radar — Anti-DPI Traffic Leaderboard        ║${NC}"
+        echo -e "${BOLD}║          🚀 MTProxyMax Live Terminal Radar — Anti-DPI Traffic Leaderboard            ║${NC}"
         echo -e "${BOLD}╚══════════════════════════════════════════════════════════════════════════════════════╝${NC}"
         echo -e "  ${BOLD}Uptime:${NC} ${CYAN}${up_str}${NC}   |   ${BOLD}Load:${NC} ${YELLOW}${load_str}${NC}   |   ${BOLD}RAM:${NC} ${GREEN}${mem_str}${NC}"
         echo -e "  ${BOLD}Proxy Port:${NC} ${CYAN}${PROXY_PORT:-443}${NC}   |   ${BOLD}Cover Domain:${NC} ${CYAN}${PROXY_DOMAIN:-none}${NC}"
@@ -5897,7 +5897,7 @@ run_export_report() {
 <html>
 <head>
 <meta charset="utf-8">
-<title>MTProxyMax v1.3.0 Executive Report</title>
+<title>MTProxyMax Executive Report</title>
 <style>
 body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f172a; color: #f8fafc; margin: 40px; }
 h1 { color: #38bdf8; border-bottom: 2px solid #334155; padding-bottom: 10px; }
@@ -5910,7 +5910,7 @@ tr:hover { background: #334155; }
 </style>
 </head>
 <body>
-<h1>🛡️ MTProxyMax v1.3.0 Executive Usage Report</h1>
+<h1>🛡️ MTProxyMax Executive Usage Report</h1>
 <p>Generated on: <strong>$(date)</strong></p>
 <table>
 <tr><th>User Label</th><th>Status</th><th>Quota Limit</th><th>Data Used</th><th>Tags / Notes</th></tr>
@@ -5988,7 +5988,7 @@ EOF
     log_info "Open this file in any web browser and press Ctrl+P to print voucher cards!"
 }
 
-# ── v1.3.0 Suite 2: Commercial & Quota Intelligence Suite ──────────────────────
+# ── Suite 2: Commercial & Quota Intelligence Suite ─────────────────────────────
 
 run_guest() {
     local label="$1"
@@ -6166,7 +6166,7 @@ run_calendar() {
     esac
 }
 
-# ── v1.3.0 Suite 3: Advanced Network Defense & Anti-DPI Suite ──────────────────
+# ── Suite 3: Advanced Network Defense & Anti-DPI Suite ─────────────────────────
 
 run_geo_fence() {
     local action="${1:-status}"
@@ -6437,7 +6437,7 @@ run_ip_score() {
     esac
 }
 
-# ── v1.3.0 Suite 4: Enterprise DevOps & Autonomous Resilience Suite ────────────
+# ── Suite 4: Enterprise DevOps & Autonomous Resilience Suite ───────────────────
 
 webhook_send() {
     local msg="$1"
@@ -12060,26 +12060,26 @@ show_cli_help() {
     echo -e "    ${GREEN}diag-dump${NC}               Create full diagnostic forensic bundle"
     echo -e "    ${GREEN}snapshot${NC} [create|restore] Point-in-time configuration snapshots"
     echo ""
-    echo -e "  ${BOLD}v1.3.0 Operational & Analytics Suite:${NC}"
+    echo -e "  ${BOLD}Operational & Analytics Suite:${NC}"
     echo -e "    ${GREEN}top${NC} [loop|once]           Live ASCII terminal traffic leaderboard & real-time radar"
     echo -e "    ${GREEN}export-client${NC} [lbl] [fmt]   Export Clash, Sing-Box, Shadowrocket & v2rayN configs"
     echo -e "    ${GREEN}export-report${NC} [html|csv]  Export standalone HTML dashboard & CSV spreadsheets"
     echo -e "    ${GREEN}qr-sheet${NC} [output.html]    Generate printable HTML voucher cards & QR grid"
     echo -e "    ${GREEN}tag${NC} <label> <note|clear>  Attach custom tags (VIP, USDT) & contact organization"
     echo ""
-    echo -e "  ${BOLD}v1.3.0 Commercial & Quota Intelligence Suite:${NC}"
+    echo -e "  ${BOLD}Commercial & Quota Intelligence Suite:${NC}"
     echo -e "    ${GREEN}guest${NC} <label> <24h|1gb>   Generate self-destructing burner / disposable links"
     echo -e "    ${GREEN}pool${NC} [create|add|list]    Create shared family / team quota buckets"
     echo -e "    ${GREEN}calendar${NC} [wp|hb|status]   Dynamic weekend free pass & holiday bonus scheduler"
     echo ""
-    echo -e "  ${BOLD}v1.3.0 Advanced Network Defense & Anti-DPI Suite:${NC}"
+    echo -e "  ${BOLD}Advanced Network Defense & Anti-DPI Suite:${NC}"
     echo -e "    ${GREEN}geofence${NC} [allow|block]    Allow-only country whitelist & ASN kernel filtering"
     echo -e "    ${GREEN}decoy${NC} [setup|status|off]  1-click embedded fake camouflage HTTP website"
     echo -e "    ${GREEN}auto-sni${NC} [test|apply]     Smart SNI cover domain benchmarker & health rotation"
     echo -e "    ${GREEN}dc-optimize${NC} [benchmark]   Telegram DC route latency benchmarker & TCP tuner"
     echo -e "    ${GREEN}ip-score${NC} [check|status]   IP reputation & censorship block probability index"
     echo ""
-    echo -e "  ${BOLD}v1.3.0 Enterprise DevOps & Autonomous Resilience Suite:${NC}"
+    echo -e "  ${BOLD}Enterprise DevOps & Autonomous Resilience Suite:${NC}"
     echo -e "    ${GREEN}webhook${NC} [add|remove|list] Discord, Slack & DingTalk real-time event dispatching"
     echo -e "    ${GREEN}failover${NC} [on|off|status] Automatic upstream failover & DNS health checks"
     echo -e "    ${GREEN}eco-mode${NC} [on|off|status] CPU & RAM throttling for 256MB micro-server conservation"
