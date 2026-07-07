@@ -1271,6 +1271,19 @@ generate_telemt_config() {
     local mask_enabled="${MASKING_ENABLED:-true}"
     local mask_host="${MASKING_HOST:-$domain}"
     local mask_port="${MASKING_PORT:-443}"
+    if [ "${COVER_SHIELD_ENABLED:-false}" = "true" ] && [ -n "${COVER_FALLBACK_TARGET:-}" ]; then
+        local _t="${COVER_FALLBACK_TARGET#*://}" # strip https:// or http://
+        _t="${_t%%/*}"                           # strip path
+        if [[ "$_t" == *":"* ]]; then
+            mask_host="${_t%%:*}"
+            mask_port="${_t#*:}"
+        else
+            mask_host="$_t"
+            mask_port="443"
+        fi
+        mask_enabled="true"
+        UNKNOWN_SNI_ACTION="mask"
+    fi
     local ad_tag="${AD_TAG:-}"
     local port="${PROXY_PORT:-443}"
     local metrics_port="${PROXY_METRICS_PORT:-9090}"
@@ -7861,20 +7874,26 @@ run_bbr() {
             if ! echo "$avail_cc" | grep -qw "bbr"; then
                 log_warn "Kernel does not report 'bbr' in available congestion controls. Attempting sysctl anyway..."
             fi
-            sysctl -w net.core.default_qdisc=fq >/dev/null 2>&1 || true
-            sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1 || true
-            sysctl -w net.ipv4.tcp_ecn=1 >/dev/null 2>&1 || true
-            sysctl -w net.ipv4.tcp_rmem="4096 87380 16777216" >/dev/null 2>&1 || true
-            sysctl -w net.ipv4.tcp_wmem="4096 65536 16777216" >/dev/null 2>&1 || true
+            local sysctl_content="# MTProxyMax BBRv3 & ECN High-Throughput Optimization\n"
+            if sysctl -w net.core.default_qdisc=fq >/dev/null 2>&1; then
+                sysctl_content+="net.core.default_qdisc = fq\n"
+            fi
+            if sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1; then
+                sysctl_content+="net.ipv4.tcp_congestion_control = bbr\n"
+            else
+                log_warn "Kernel rejected 'bbr' congestion control (common in OpenVZ/LXC containers). Keeping default CC."
+            fi
+            if sysctl -w net.ipv4.tcp_ecn=1 >/dev/null 2>&1; then
+                sysctl_content+="net.ipv4.tcp_ecn = 1\n"
+            fi
+            if sysctl -w net.ipv4.tcp_rmem="4096 87380 16777216" >/dev/null 2>&1; then
+                sysctl_content+="net.ipv4.tcp_rmem = 4096 87380 16777216\n"
+            fi
+            if sysctl -w net.ipv4.tcp_wmem="4096 65536 16777216" >/dev/null 2>&1; then
+                sysctl_content+="net.ipv4.tcp_wmem = 4096 65536 16777216\n"
+            fi
             mkdir -p /etc/sysctl.d
-            cat <<'SYSCTL' > /etc/sysctl.d/99-mtproxymax-bbr.conf
-# MTProxyMax BBRv3 & ECN High-Throughput Optimization
-net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bbr
-net.ipv4.tcp_ecn = 1
-net.ipv4.tcp_rmem = 4096 87380 16777216
-net.ipv4.tcp_wmem = 4096 65536 16777216
-SYSCTL
+            echo -e "$sysctl_content" > /etc/sysctl.d/99-mtproxymax-bbr.conf
             sysctl -p /etc/sysctl.d/99-mtproxymax-bbr.conf >/dev/null 2>&1 || true
             BBR_ECN_ENABLED="true"
             save_settings
@@ -8002,9 +8021,15 @@ run_cover_shield() {
             ;;
         target|set-target)
             [ -z "$target" ] && { log_error "Usage: mtproxymax cover-shield target <https://domain.com>"; return 1; }
+            target="${target//\'/}" # strip single quotes for safe settings persistence
+            target="${target// /}"  # strip whitespace
             [[ "$target" =~ ^https?:// ]] || target="https://${target}"
             COVER_FALLBACK_TARGET="$target"
             save_settings
+            if [ "${COVER_SHIELD_ENABLED:-false}" = "true" ] && is_proxy_running; then
+                log_info "Restarting telemt engine to apply updated Cover Shield target..."
+                restart_proxy >/dev/null 2>&1 || true
+            fi
             log_success "Cover Shield fallback target updated to: ${COVER_FALLBACK_TARGET}"
             ;;
         status|"")
