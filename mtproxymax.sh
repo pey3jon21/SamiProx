@@ -11,7 +11,7 @@ set -eo pipefail
 export LC_NUMERIC=C
 
 # ── Section 1: Initialization ────────────────────────────────
-VERSION="1.3.0"
+VERSION="1.3.1"
 SCRIPT_NAME="mtproxymax"
 INSTALL_DIR="/opt/mtproxymax"
 CONFIG_DIR="${INSTALL_DIR}/mtproxy"
@@ -161,6 +161,10 @@ RAM_TUNE_ENABLED="false"
 PORT_HOP_RANGES=""
 CPU_TUNE_ENABLED="false"
 SCANNER_SHIELD_ENABLED="false"
+BBR_ECN_ENABLED="false"
+ANTI_DPI_SHIELD_ENABLED="false"
+COVER_SHIELD_ENABLED="false"
+COVER_FALLBACK_TARGET="https://cloudflare.com"
 PORTAL_ENABLED="false"
 PORTAL_PORT="8080"
 
@@ -783,6 +787,10 @@ RAM_TUNE_ENABLED='${RAM_TUNE_ENABLED}'
 PORT_HOP_RANGES='${PORT_HOP_RANGES}'
 CPU_TUNE_ENABLED='${CPU_TUNE_ENABLED}'
 SCANNER_SHIELD_ENABLED='${SCANNER_SHIELD_ENABLED}'
+BBR_ECN_ENABLED='${BBR_ECN_ENABLED}'
+ANTI_DPI_SHIELD_ENABLED='${ANTI_DPI_SHIELD_ENABLED}'
+COVER_SHIELD_ENABLED='${COVER_SHIELD_ENABLED}'
+COVER_FALLBACK_TARGET='${COVER_FALLBACK_TARGET}'
 PORTAL_ENABLED='${PORTAL_ENABLED}'
 PORTAL_PORT='${PORTAL_PORT}'
 SETTINGS_EOF
@@ -827,7 +835,7 @@ load_settings() {
             DDNS_ENABLED|DDNS_CF_TOKEN|DDNS_CF_ZONE_ID|DDNS_RECORD_NAME|\
             TCP_BOOST_ENABLED|TCP_CLEAN_ENABLED|SOCKET_BOOST_ENABLED|TLS_PAD_ENABLED|HONEYPOT_ENABLED|AUTO_HEAL_ENABLED|\
             TCP_FASTPATH_ENABLED|RAM_TUNE_ENABLED|PORT_HOP_RANGES|CPU_TUNE_ENABLED|\
-            SCANNER_SHIELD_ENABLED|PORTAL_ENABLED|PORTAL_PORT)
+            SCANNER_SHIELD_ENABLED|BBR_ECN_ENABLED|ANTI_DPI_SHIELD_ENABLED|COVER_SHIELD_ENABLED|COVER_FALLBACK_TARGET|PORTAL_ENABLED|PORTAL_PORT)
                 printf -v "$key" '%s' "$val"
                 ;;
         esac
@@ -4837,6 +4845,7 @@ apply_firewall_rules() {
     apply_qos_rules
     apply_port_pool_rules
     apply_port_hop_rules
+    [ "${ANTI_DPI_SHIELD_ENABLED:-false}" = "true" ] && run_anti_dpi_shield on >/dev/null 2>&1 || true
 }
 
 apply_port_pool_rules() {
@@ -7833,6 +7842,185 @@ CPUTUNE
             ;;
         *)
             log_error "Usage: mtproxymax cpu-tune [on|off|status]"
+            return 1
+            ;;
+    esac
+}
+
+# ── Section 7j: Suite 1 — BBRv3 / TCP Prague Congestion Control & ECN Auto-Tuning ──
+run_bbr() {
+    load_settings
+    local action="${1:-status}"
+    case "$action" in
+        on|enable)
+            check_root
+            log_info "Activating TCP BBRv3 Congestion Control, ECN, and Network Buffer Tuning..."
+            modprobe tcp_bbr 2>/dev/null || true
+            local avail_cc
+            avail_cc=$(sysctl -n net.ipv4.tcp_available_congestion_control 2>/dev/null || echo "")
+            if ! echo "$avail_cc" | grep -qw "bbr"; then
+                log_warn "Kernel does not report 'bbr' in available congestion controls. Attempting sysctl anyway..."
+            fi
+            sysctl -w net.core.default_qdisc=fq >/dev/null 2>&1 || true
+            sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1 || true
+            sysctl -w net.ipv4.tcp_ecn=1 >/dev/null 2>&1 || true
+            sysctl -w net.ipv4.tcp_rmem="4096 87380 16777216" >/dev/null 2>&1 || true
+            sysctl -w net.ipv4.tcp_wmem="4096 65536 16777216" >/dev/null 2>&1 || true
+            mkdir -p /etc/sysctl.d
+            cat <<'SYSCTL' > /etc/sysctl.d/99-mtproxymax-bbr.conf
+# MTProxyMax BBRv3 & ECN High-Throughput Optimization
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+net.ipv4.tcp_ecn = 1
+net.ipv4.tcp_rmem = 4096 87380 16777216
+net.ipv4.tcp_wmem = 4096 65536 16777216
+SYSCTL
+            sysctl -p /etc/sysctl.d/99-mtproxymax-bbr.conf >/dev/null 2>&1 || true
+            BBR_ECN_ENABLED="true"
+            save_settings
+            log_success "BBRv3 Congestion Control, ECN, and 16MB TCP Buffers activated!"
+            ;;
+        off|disable)
+            check_root
+            rm -f /etc/sysctl.d/99-mtproxymax-bbr.conf 2>/dev/null
+            sysctl -w net.ipv4.tcp_ecn=2 >/dev/null 2>&1 || true
+            sysctl -w net.core.default_qdisc=pfifo_fast >/dev/null 2>&1 || true
+            sysctl -w net.ipv4.tcp_congestion_control=cubic >/dev/null 2>&1 || true
+            BBR_ECN_ENABLED="false"
+            save_settings
+            log_success "BBR/ECN tuning disabled (restored cubic and standard sysctl defaults)."
+            ;;
+        status|"")
+            echo -e "\n  🚀 ${BOLD}Suite 1: BBRv3 Congestion Control & ECN Auto-Tuning:${NC}"
+            local cur_cc cur_qdisc cur_ecn
+            cur_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo "unknown")
+            cur_qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null || echo "unknown")
+            cur_ecn=$(sysctl -n net.ipv4.tcp_ecn 2>/dev/null || echo "unknown")
+            if [ "${BBR_ECN_ENABLED:-false}" = "true" ] || [ "$cur_cc" = "bbr" ]; then
+                echo -e "     Status:        ${GREEN}${BOLD}ENABLED${NC}"
+            else
+                echo -e "     Status:        ${YELLOW}DISABLED${NC}"
+            fi
+            echo -e "     Congestion:    ${CYAN}${cur_cc}${NC}"
+            echo -e "     Queue Disc:    ${CYAN}${cur_qdisc}${NC}"
+            echo -e "     TCP ECN:       ${CYAN}$([ "$cur_ecn" = "1" ] && echo "ON (Explicit Congestion Notification)" || echo "OFF (${cur_ecn})")${NC}"
+            echo -e "  Usage: mtproxymax bbr [on|off|status]\n"
+            ;;
+        *)
+            log_error "Usage: mtproxymax bbr [on|off|status]"
+            return 1
+            ;;
+    esac
+}
+
+# ── Section 7k: Suite 2 — Anti-DPI Packet Padding & TLS Fingerprint Shield ──
+run_anti_dpi_shield() {
+    load_settings
+    local action="${1:-status}"
+    case "$action" in
+        on|enable)
+            check_root
+            [ -z "${PROXY_PORT:-}" ] && { log_error "PROXY_PORT not configured"; return 1; }
+            log_info "Activating Anti-DPI Packet Padding & TLS Fingerprint Scrubbing Shield..."
+            if command -v iptables >/dev/null 2>&1; then
+                local _chain
+                for _chain in FORWARD OUTPUT POSTROUTING; do
+                    while iptables -t mangle -D "$_chain" -p tcp --tcp-flags SYN,RST SYN --dport "${PROXY_PORT}" -m comment --comment "mtproxymax_antidpi" -j TCPMSS --set-mss 1360 2>/dev/null; do :; done
+                    while iptables -t mangle -D "$_chain" -p tcp --tcp-flags SYN,RST SYN --sport "${PROXY_PORT}" -m comment --comment "mtproxymax_antidpi" -j TCPMSS --set-mss 1360 2>/dev/null; do :; done
+                    iptables -t mangle -I "$_chain" 1 -p tcp --tcp-flags SYN,RST SYN --dport "${PROXY_PORT}" -m comment --comment "mtproxymax_antidpi" -j TCPMSS --set-mss 1360 2>/dev/null || true
+                    iptables -t mangle -I "$_chain" 2 -p tcp --tcp-flags SYN,RST SYN --sport "${PROXY_PORT}" -m comment --comment "mtproxymax_antidpi" -j TCPMSS --set-mss 1360 2>/dev/null || true
+                done
+            fi
+            ANTI_DPI_SHIELD_ENABLED="true"
+            save_settings
+            log_success "Anti-DPI Packet Padding Shield activated! (MSS randomized/clamped to scrub MTProto heuristics)"
+            ;;
+        off|disable)
+            check_root
+            [ -z "${PROXY_PORT:-}" ] && { log_error "PROXY_PORT not configured"; return 1; }
+            if command -v iptables >/dev/null 2>&1; then
+                local _chain
+                for _chain in FORWARD OUTPUT POSTROUTING; do
+                    while iptables -t mangle -D "$_chain" -p tcp --tcp-flags SYN,RST SYN --dport "${PROXY_PORT}" -m comment --comment "mtproxymax_antidpi" -j TCPMSS --set-mss 1360 2>/dev/null; do :; done
+                    while iptables -t mangle -D "$_chain" -p tcp --tcp-flags SYN,RST SYN --sport "${PROXY_PORT}" -m comment --comment "mtproxymax_antidpi" -j TCPMSS --set-mss 1360 2>/dev/null; do :; done
+                done
+            fi
+            ANTI_DPI_SHIELD_ENABLED="false"
+            save_settings
+            log_success "Anti-DPI Packet Padding Shield disabled."
+            ;;
+        status|"")
+            echo -e "\n  🛡️ ${BOLD}Suite 2: Anti-DPI Packet Padding & TLS Fingerprint Shield:${NC}"
+            if [ "${ANTI_DPI_SHIELD_ENABLED:-false}" = "true" ]; then
+                echo -e "     Status:        ${GREEN}${BOLD}ENABLED${NC} (Active TCP Window & MSS Fingerprint Scrubbing)"
+            else
+                echo -e "     Status:        ${YELLOW}DISABLED${NC}"
+            fi
+            echo -e "     Target Port:   ${CYAN}${PROXY_PORT:-443}${NC}"
+            echo -e "     Protection:    ${CYAN}Scrubs MTProto FakeTLS packet size signatures from GFW/TSPU/TIC DPI boxes${NC}"
+            echo -e "  Usage: mtproxymax shield [on|off|status]\n"
+            ;;
+        *)
+            log_error "Usage: mtproxymax shield [on|off|status]"
+            return 1
+            ;;
+    esac
+}
+
+# ── Section 7l: Suite 3 — Reverse-Proxy Cover Shield & Active Probe Defense ──
+run_cover_shield() {
+    load_settings
+    local action="${1:-status}"
+    local target="${2:-}"
+    case "$action" in
+        on|enable)
+            check_root
+            [ -z "${PROXY_PORT:-}" ] && { log_error "PROXY_PORT not configured"; return 1; }
+            if [ -n "$target" ]; then
+                [[ "$target" =~ ^https?:// ]] || target="https://${target}"
+                COVER_FALLBACK_TARGET="$target"
+            fi
+            log_info "Activating Reverse-Proxy Cover Shield (Active Probe Defense)..."
+            log_info "Fallback Target configured to: ${COVER_FALLBACK_TARGET:-https://cloudflare.com}"
+            UNKNOWN_SNI_ACTION="mask"
+            COVER_SHIELD_ENABLED="true"
+            save_settings
+            if is_proxy_running; then
+                log_info "Restarting telemt engine to apply Cover Shield fallback routing..."
+                restart_proxy >/dev/null 2>&1 || true
+            fi
+            log_success "Reverse-Proxy Cover Shield activated! (Non-MTProto probes forwarded to ${COVER_FALLBACK_TARGET})"
+            ;;
+        off|disable)
+            check_root
+            COVER_SHIELD_ENABLED="false"
+            save_settings
+            if is_proxy_running; then
+                restart_proxy >/dev/null 2>&1 || true
+            fi
+            log_success "Reverse-Proxy Cover Shield disabled."
+            ;;
+        target|set-target)
+            [ -z "$target" ] && { log_error "Usage: mtproxymax cover-shield target <https://domain.com>"; return 1; }
+            [[ "$target" =~ ^https?:// ]] || target="https://${target}"
+            COVER_FALLBACK_TARGET="$target"
+            save_settings
+            log_success "Cover Shield fallback target updated to: ${COVER_FALLBACK_TARGET}"
+            ;;
+        status|"")
+            echo -e "\n  🕵️ ${BOLD}Suite 3: Reverse-Proxy Cover Shield & Active Probe Defense:${NC}"
+            if [ "${COVER_SHIELD_ENABLED:-false}" = "true" ]; then
+                echo -e "     Status:        ${GREEN}${BOLD}ENABLED${NC} (Active Censorship Probe Trapdoor)"
+            else
+                echo -e "     Status:        ${YELLOW}DISABLED${NC}"
+            fi
+            echo -e "     Listen Port:   ${CYAN}${PROXY_PORT:-443}${NC}"
+            echo -e "     Fallback Site: ${CYAN}${COVER_FALLBACK_TARGET:-https://cloudflare.com}${NC}"
+            echo -e "     Behavior:      ${CYAN}Forwards HTTP GET & invalid TLS handshakes to fallback site instead of resetting socket${NC}"
+            echo -e "  Usage: mtproxymax cover-shield [on|off|status|target <url>]\n"
+            ;;
+        *)
+            log_error "Usage: mtproxymax cover-shield [on|off|status|target <url>]"
             return 1
             ;;
     esac
@@ -12122,6 +12310,9 @@ show_cli_help() {
     echo -e "    ${GREEN}ram-tune${NC} [auto|off]        Auto-detect RAM & apply optimal TCP memory buffers"
     echo -e "    ${GREEN}port-hop${NC} [add|remove|list] Dynamic multi-port NAT range redirection"
     echo -e "    ${GREEN}cpu-tune${NC} [on|off|status]   Multi-core IRQ packet spreading (RPS/RFS)"
+    echo -e "    ${GREEN}bbr${NC} [on|off|status]        Activate TCP BBRv3 Congestion Control & ECN tuning"
+    echo -e "    ${GREEN}shield${NC} [on|off|status]     Activate Anti-DPI Packet Padding & TLS Fingerprint Shield"
+    echo -e "    ${GREEN}cover-shield${NC} [on|off|url]  Activate Reverse-Proxy Cover Shield (Active Probe Defense)"
     echo ""
     echo -e "  ${BOLD}Enterprise Commercial & Shield Suite:${NC}"
     echo -e "    ${GREEN}voucher create${NC} <cnt> <qta> <dys> Generate batch voucher codes"
@@ -13273,6 +13464,18 @@ cli_main() {
 
         cpu-tune)
             run_cpu_tune "$@"
+            ;;
+
+        bbr|tune-net)
+            run_bbr "$@"
+            ;;
+
+        shield|anti-dpi)
+            run_anti_dpi_shield "$@"
+            ;;
+
+        cover-shield|fallback)
+            run_cover_shield "$@"
             ;;
 
         tg-urls)
@@ -16608,6 +16811,9 @@ show_performance_menu() {
         echo -e "  ${BOLD}7. Dynamic RAM Auto-Tune:${NC} $([ "${RAM_TUNE_ENABLED:-false}" = "true" ] && echo "${GREEN}ENABLED${NC}" || echo "${YELLOW}DISABLED${NC}")"
         echo -e "  ${BOLD}8. Port Range Shadowing:${NC} ${CYAN}${PORT_HOP_RANGES:-none}${NC}"
         echo -e "  ${BOLD}9. Multi-Core IRQ Spread:${NC} $([ "${CPU_TUNE_ENABLED:-false}" = "true" ] && echo "${GREEN}ENABLED${NC}" || echo "${YELLOW}DISABLED${NC}")"
+        echo -e "  ${BOLD}a. BBRv3 & ECN Tuning:${NC}    $([ "${BBR_ECN_ENABLED:-false}" = "true" ] && echo "${GREEN}ENABLED${NC}" || echo "${YELLOW}DISABLED${NC}")"
+        echo -e "  ${BOLD}b. Anti-DPI Shield:${NC}       $([ "${ANTI_DPI_SHIELD_ENABLED:-false}" = "true" ] && echo "${GREEN}ENABLED${NC}" || echo "${YELLOW}DISABLED${NC}")"
+        echo -e "  ${BOLD}c. Cover Probe Shield:${NC}    $([ "${COVER_SHIELD_ENABLED:-false}" = "true" ] && echo "${GREEN}ENABLED${NC}" || echo "${YELLOW}DISABLED${NC}")"
         echo -e "  ${BOLD}h. Background Auto-Heal:${NC} $([ "${AUTO_HEAL_ENABLED:-false}" = "true" ] && echo "${GREEN}ENABLED${NC}" || echo "${YELLOW}DISABLED${NC}")"
         echo ""
         echo -e "  ${DIM}[1]${NC} Toggle Linux Kernel TCP BBR & Fast Open Booster"
@@ -16619,6 +16825,9 @@ show_performance_menu() {
         echo -e "  ${DIM}[7]${NC} Toggle Dynamic RAM Auto-Tuning Profile"
         echo -e "  ${DIM}[8]${NC} Manage Dynamic Multi-Port Range Shadowing"
         echo -e "  ${DIM}[9]${NC} Toggle Multi-Core IRQ Packet Spreading (RPS/RFS)"
+        echo -e "  ${DIM}[a]${NC} Toggle Suite 1: BBRv3 Congestion Control & ECN Auto-Tuning"
+        echo -e "  ${DIM}[b]${NC} Toggle Suite 2: Anti-DPI Packet Padding & TLS Fingerprint Shield"
+        echo -e "  ${DIM}[c]${NC} Toggle Suite 3: Reverse-Proxy Cover Shield & Active Probe Defense"
         echo -e "  ${DIM}[h]${NC} Toggle Background RAM & Socket Auto-Healer"
         echo -e "  ${DIM}[e]${NC} Execute Emergency One-Click Immediate Heal Now"
         echo -e "  ${DIM}[0]${NC} Back"
@@ -16635,6 +16844,9 @@ show_performance_menu() {
             7) [ "${RAM_TUNE_ENABLED:-false}" = "true" ] && run_ram_tune off || run_ram_tune auto; press_any_key ;;
             8) show_port_hop_menu ;;
             9) [ "${CPU_TUNE_ENABLED:-false}" = "true" ] && run_cpu_tune off || run_cpu_tune on; press_any_key ;;
+            a|A) [ "${BBR_ECN_ENABLED:-false}" = "true" ] && run_bbr off || run_bbr on; press_any_key ;;
+            b|B) [ "${ANTI_DPI_SHIELD_ENABLED:-false}" = "true" ] && run_anti_dpi_shield off || run_anti_dpi_shield on; press_any_key ;;
+            c|C) [ "${COVER_SHIELD_ENABLED:-false}" = "true" ] && run_cover_shield off || run_cover_shield on; press_any_key ;;
             h|H) [ "${AUTO_HEAL_ENABLED:-false}" = "true" ] && run_auto_heal off || run_auto_heal on; press_any_key ;;
             e|E) run_heal; press_any_key ;;
             0|"") return ;;
