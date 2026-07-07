@@ -421,8 +421,10 @@ format_bytes() {
         echo "$(awk -v b="$bytes" 'BEGIN {printf "%.1f", b/1024}') KB"
     elif [ "$bytes" -lt 1073741824 ] 2>/dev/null; then
         echo "$(awk -v b="$bytes" 'BEGIN {printf "%.2f", b/1048576}') MB"
-    else
+    elif [ "$bytes" -lt 1099511627776 ] 2>/dev/null; then
         echo "$(awk -v b="$bytes" 'BEGIN {printf "%.2f", b/1073741824}') GB"
+    else
+        echo "$(awk -v b="$bytes" 'BEGIN {printf "%.2f", b/1099511627776}') TB"
     fi
 }
 
@@ -2904,8 +2906,8 @@ secret_stats() {
         if [ "$quota" != "0" ] && [ "$quota" -gt 0 ] 2>/dev/null; then
             quota_str=$(format_bytes "$quota")
             local total_bytes=$((rx + tx))
-            local pct=$((total_bytes * 100 / quota))
-            [ $pct -ge 80 ] && used_str="${YELLOW}${pct}%${NC}" || used_str="${pct}%"
+            local pct=$(awk -v b="$total_bytes" -v q="$quota" 'BEGIN {printf "%.0f", (q>0 ? b/q*100 : 0)}')
+            [ "$pct" -ge 80 ] 2>/dev/null && used_str="${YELLOW}${pct}%${NC}" || used_str="${pct}%"
         fi
 
         # Expiry
@@ -3397,7 +3399,7 @@ secret_top() {
         traffic|t)
             draw_header "TOP ${count} BY TRAFFIC"
             echo ""
-            echo "$parsed" | awk -F'|' '{print $0"|"$3+$4}' | sort -t'|' -k5 -rn | head -n "$count" | \
+            echo "$parsed" | awk -F'|' '{printf "%s|%.0f\n", $0, $3+$4}' | sort -t'|' -k5 -rn | head -n "$count" | \
             while IFS='|' read -r uname conns rx tx total; do
                 printf "  %-16s  ${SYM_DOWN} %-10s  ${SYM_UP} %-10s  (total: %s)\n" "$uname" "$(format_bytes "$rx")" "$(format_bytes "$tx")" "$(format_bytes "$total")"
             done
@@ -5766,8 +5768,8 @@ run_top() {
                 local quota="${SECRETS_QUOTA[$i]:-0}"
                 local bar="[∞ Unmetered]"
                 if [ "$quota" -gt 0 ] 2>/dev/null; then
-                    local pct=$(( bytes_used * 100 / quota ))
-                    [ "$pct" -gt 100 ] && pct=100
+                    local pct=$(awk -v b="$bytes_used" -v q="$quota" 'BEGIN {printf "%.0f", (q>0 ? b/q*100 : 0)}')
+                    [ "$pct" -gt 100 ] 2>/dev/null && pct=100
                     local filled=$(( pct / 10 ))
                     local empty=$(( 10 - filled ))
                     local bar_str=""
@@ -6058,8 +6060,8 @@ run_pool() {
                 
                 local bar="[∞ Unmetered]"
                 if [ "$p_limit" -gt 0 ] 2>/dev/null; then
-                    local pct=$(( comb_bytes * 100 / p_limit ))
-                    [ "$pct" -gt 100 ] && pct=100
+                    local pct=$(awk -v b="$comb_bytes" -v q="$p_limit" 'BEGIN {printf "%.0f", (q>0 ? b/q*100 : 0)}')
+                    [ "$pct" -gt 100 ] 2>/dev/null && pct=100
                     local filled=$(( pct / 10 )); local empty=$(( 10 - filled ))
                     local bar_str=""
                     for ((f=0; f<filled; f++)); do bar_str="${bar_str}█"; done
@@ -9173,7 +9175,7 @@ JSON_EOF
             local ui=${_cum_user_in["$label"]:-0} uo=${_cum_user_out["$label"]:-0}
             local total_b=$((ui + uo))
             local q_raw="${_q:-0}"
-            local pct=0; [ "$q_raw" -gt 0 ] 2>/dev/null && pct=$((total_b * 100 / q_raw))
+            local pct=0; [ "$q_raw" -gt 0 ] 2>/dev/null && pct=$(awk -v b="$total_b" -v q="$q_raw" 'BEGIN {printf "%.0f", (q>0 ? b/q*100 : 0)}')
             [ "$first" = "true" ] && first="false" || echo "," >> "$tmp_json"
             cat >> "$tmp_json" << USER_JSON_EOF
     "${fs}": {
@@ -9661,22 +9663,6 @@ send_proxy_qr() {
 
 # Escape Markdown special chars in labels for Telegram
 _esc() { local t="$1"; t="${t//_/\\_}"; t="${t//\*/\\*}"; t="${t//\`/\\\`}"; echo "$t"; }
-
-format_bytes() {
-    local b=$1; [[ "$b" =~ ^[0-9]+$ ]] || b=0
-    [ "$b" -lt 1024 ] 2>/dev/null && echo "${b} B" && return
-    [ "$b" -lt 1048576 ] 2>/dev/null && echo "$(awk -v b=$b 'BEGIN{printf "%.1f",b/1024}') KB" && return
-    [ "$b" -lt 1073741824 ] 2>/dev/null && echo "$(awk -v b=$b 'BEGIN{printf "%.2f",b/1048576}') MB" && return
-    echo "$(awk -v b=$b 'BEGIN{printf "%.2f",b/1073741824}') GB"
-}
-
-format_duration() {
-    local s=$1; [[ "$s" =~ ^[0-9]+$ ]] || s=0
-    local d=$((s/86400)) h=$(((s%86400)/3600)) m=$(((s%3600)/60))
-    [ "$d" -gt 0 ] && echo "${d}d ${h}h ${m}m" && return
-    [ "$h" -gt 0 ] && echo "${h}h ${m}m" && return
-    echo "${m}m"
-}
 
 is_running() {
     docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^mtproxymax$"
@@ -10326,8 +10312,8 @@ while true; do
             [ "$enabled" != "true" ] && continue
             total_bytes=$(( ${_cum_user_in[$label]:-0} + ${_cum_user_out[$label]:-0} ))
             [ "$total_bytes" -le 0 ] && continue
-            pct=$(( total_bytes * 100 / _q ))
-            if [ "$pct" -ge 100 ]; then
+            pct=$(awk -v b="$total_bytes" -v q="$_q" 'BEGIN {printf "%.0f", (q>0 ? b/q*100 : 0)}')
+            if [ "$pct" -ge 100 ] 2>/dev/null; then
                 if ! grep -q "^${label}|100$" "$_quota_file" 2>/dev/null; then
                     if "${INSTALL_DIR}/mtproxymax" secret disable "$label" &>/dev/null; then
                         [ "$TELEGRAM_ENABLED" = "true" ] && tg_send "🔴 *Quota Exceeded — Auto-disabled*\n\nSecret *$(_esc "$label")* used $(format_bytes $total_bytes) of $(format_bytes $_q) (${pct}%)\n\nRe-enable: \`mtproxymax secret reenable $label\`"
