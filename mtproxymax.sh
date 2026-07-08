@@ -171,6 +171,7 @@ PORTAL_PORT="8080"
 # Auto-rotate and backup retention
 SECRET_AUTO_ROTATE_DAYS="0"     # 0 = disabled; otherwise rotate secrets older than N days
 BACKUP_RETENTION_DAYS="30"      # Auto-clean backups older than N days (0 = keep all)
+QUOTA_ENFORCEMENT_MODE="manager" # manager = smooth reset without restart; engine = strict in-memory telemt config
 
 # Replication / HA
 REPLICATION_ENABLED="false"
@@ -747,9 +748,10 @@ TELEGRAM_SERVER_LABEL='${TELEGRAM_SERVER_LABEL}'
 # Auto-Update
 AUTO_UPDATE_ENABLED='${AUTO_UPDATE_ENABLED}'
 
-# Secret auto-rotate
+# Secret auto-rotate & Quota
 SECRET_AUTO_ROTATE_DAYS='${SECRET_AUTO_ROTATE_DAYS}'
 BACKUP_RETENTION_DAYS='${BACKUP_RETENTION_DAYS}'
+QUOTA_ENFORCEMENT_MODE='${QUOTA_ENFORCEMENT_MODE:-manager}'
 
 # Anti-DPI & Stealth Defenses
 STEALTH_SHIELD='${STEALTH_SHIELD}'
@@ -827,7 +829,7 @@ load_settings() {
             PROXY_SECRET_URL|PROXY_CONFIG_V4_URL|PROXY_CONFIG_V6_URL|\
             TELEGRAM_ENABLED|TELEGRAM_BOT_TOKEN|TELEGRAM_CHAT_ID|\
             TELEGRAM_INTERVAL|TELEGRAM_ALERTS_ENABLED|TELEGRAM_SERVER_LABEL|\
-            AUTO_UPDATE_ENABLED|SECRET_AUTO_ROTATE_DAYS|BACKUP_RETENTION_DAYS|\
+            AUTO_UPDATE_ENABLED|SECRET_AUTO_ROTATE_DAYS|BACKUP_RETENTION_DAYS|QUOTA_ENFORCEMENT_MODE|\
             STEALTH_SHIELD|STEALTH_PRESET|STEALTH_MSS_CLAMP|LOCKDOWN_MODE|PORT_POOL_PORTS|QOS_LIMIT_MBPS|HAPPY_HOURS_WINDOW|\
             REPLICATION_ENABLED|REPLICATION_ROLE|REPLICATION_SYNC_INTERVAL|\
             REPLICATION_SSH_PORT|REPLICATION_SSH_USER|REPLICATION_DELETE_EXTRA|REPLICATION_SSH_KEY_PATH|REPLICATION_EXCLUDE|\
@@ -1407,7 +1409,7 @@ TOML_EOF
         done
     fi
 
-    if $has_quota; then
+    if $has_quota && [ "${QUOTA_ENFORCEMENT_MODE:-manager}" = "engine" ]; then
         echo "" >> "$tmp"
         echo "[access.user_data_quota]" >> "$tmp"
         for i in "${!SECRETS_LABELS[@]}"; do
@@ -2508,36 +2510,56 @@ secret_reenable() {
         echo -en "  ${BOLD}Reset traffic counter for quota? [y/N]:${NC} "
         local _ans; read -r _ans
         if [[ "$_ans" =~ ^[yY] ]]; then
-            # Zero the cumulative traffic for this user
-            local _ut="${STATS_DIR}/user_traffic"
-            if [ -f "$_ut" ]; then
-                grep -v "^${label}|" "$_ut" > "${_ut}.tmp" 2>/dev/null || true
-                mv "${_ut}.tmp" "$_ut" 2>/dev/null || true
-            fi
-            # Clear quota alert tracking
-            local _qa="${STATS_DIR}/.quota_alerts_sent"
-            [ -f "$_qa" ] && { grep -v "^${label}|" "$_qa" > "${_qa}.tmp" 2>/dev/null; mv "${_qa}.tmp" "$_qa" 2>/dev/null; } || true
+            secret_reset_traffic "$label" "no_reload" >/dev/null 2>&1 || true
             log_success "Traffic counter reset for '${label}'"
         fi
     fi
 
-    reload_proxy_config
+    load_settings 2>/dev/null || true
+    if [ "${QUOTA_ENFORCEMENT_MODE:-manager}" = "engine" ]; then
+        restart_proxy_container 2>/dev/null || true
+    else
+        reload_proxy_config 2>/dev/null || true
+    fi
     log_success "Secret '${label}' re-enabled"
 }
 
 # Reset traffic counters for a secret (or all)
 secret_reset_traffic() {
     local label="${1:-}"
+    local no_reload="${2:-}"
     [ -z "$label" ] && { log_error "Usage: mtproxymax secret reset-traffic <label|all>"; return 1; }
 
     local _ut="${STATS_DIR}/user_traffic"
     local _snap="${STATS_DIR}/user_traffic_snapshot"
     local _qa="${STATS_DIR}/.quota_alerts_sent"
+    mkdir -p "${STATS_DIR}" 2>/dev/null
 
     if [ "$label" = "all" ]; then
         : > "$_ut" 2>/dev/null || true
-        : > "$_snap" 2>/dev/null || true
         : > "$_qa" 2>/dev/null || true
+        # Update snapshot with current live Prometheus values so delta becomes 0 right now
+        local _m
+        if _m=$(_fetch_metrics 2>/dev/null) && [ -n "$_m" ]; then
+            echo "$_m" | awk '
+                function get_user(s,   p,q) {
+                    p = index(s, "user=\"")
+                    if (!p) return ""
+                    s = substr(s, p + 6)
+                    q = index(s, "\"")
+                    return q ? substr(s, 1, q - 1) : ""
+                }
+                /^telemt_user_octets_from_client\{/ { u = get_user($0); if (u) in_oct[u] += $NF }
+                /^telemt_user_octets_to_client\{/ { u = get_user($0); if (u) out_oct[u] += $NF }
+                END {
+                    for (u in in_oct) {
+                        printf "%s|%.0f|%.0f\n", u, in_oct[u], out_oct[u]
+                    }
+                }
+            ' > "$_snap" 2>/dev/null || : > "$_snap"
+        else
+            : > "$_snap" 2>/dev/null || true
+        fi
         log_success "Traffic counters reset for all users"
     else
         # Verify label exists
@@ -2547,10 +2569,31 @@ secret_reset_traffic() {
         done
         [ "$found" = "false" ] && { log_error "Secret '${label}' not found"; return 1; }
 
-        for f in "$_ut" "$_snap" "$_qa"; do
+        # Clear saved user_traffic and quota alerts
+        for f in "$_ut" "$_qa"; do
             [ -f "$f" ] && { grep -v "^${label}|" "$f" > "${f}.tmp" 2>/dev/null || true; mv "${f}.tmp" "$f" 2>/dev/null || true; }
         done
+
+        # Update user_traffic_snapshot to exact current live Prometheus values so delta becomes 0 right now
+        local live_in=0 live_out=0
+        read -r live_in live_out _ <<< "$(get_user_stats "$label" 2>/dev/null)"
+        [[ "${live_in:-0}" =~ ^[0-9]+$ ]] || live_in=0
+        [[ "${live_out:-0}" =~ ^[0-9]+$ ]] || live_out=0
+        if [ -f "$_snap" ]; then
+            grep -v "^${label}|" "$_snap" > "${_snap}.tmp" 2>/dev/null || true
+            mv "${_snap}.tmp" "$_snap" 2>/dev/null || true
+        fi
+        echo "${label}|${live_in}|${live_out}" >> "$_snap"
         log_success "Traffic counters reset for '${label}'"
+    fi
+
+    if [ "${no_reload:-}" != "no_reload" ]; then
+        load_settings 2>/dev/null || true
+        if [ "${QUOTA_ENFORCEMENT_MODE:-manager}" = "engine" ]; then
+            restart_proxy_container 2>/dev/null || true
+        else
+            reload_proxy_config 2>/dev/null || true
+        fi
     fi
 }
 
@@ -5432,6 +5475,43 @@ run_happy_hours() {
             ;;
         *)
             log_error "Usage: mtproxymax happy-hours [set <HH:MM-HH:MM>|off|status]"
+            return 1
+            ;;
+    esac
+}
+
+run_quota_mode() {
+    local mode="${1:-status}"
+    case "$mode" in
+        manager)
+            check_root
+            load_settings
+            QUOTA_ENFORCEMENT_MODE="manager"
+            save_settings
+            reload_proxy_config
+            log_success "Quota enforcement set to: manager (Smooth reset without container restart)"
+            ;;
+        engine)
+            check_root
+            load_settings
+            QUOTA_ENFORCEMENT_MODE="engine"
+            save_settings
+            restart_proxy_container
+            log_success "Quota enforcement set to: engine (Strict telemt-side config, requires restart on reset)"
+            ;;
+        status|"")
+            load_settings
+            echo -e "\n  📊 ${BOLD}Quota Enforcement Mode Configuration:${NC}"
+            local cur_mode="${QUOTA_ENFORCEMENT_MODE:-manager}"
+            if [ "$cur_mode" = "engine" ]; then
+                echo -e "     Current Mode: ${YELLOW}engine${NC} (Strict C/Rust engine quota in config.toml; restarts on reset)"
+            else
+                echo -e "     Current Mode: ${GREEN}${BOLD}manager${NC} (Smooth MTProxyMax periodic enforcement; 0-disconnect resets)"
+            fi
+            echo -e "  ${DIM}Usage: mtproxymax quota-mode [manager|engine|status]${NC}\n"
+            ;;
+        *)
+            log_error "Usage: mtproxymax quota-mode [manager|engine|status]"
             return 1
             ;;
     esac
@@ -12255,6 +12335,7 @@ show_cli_help() {
     echo -e "  ${BOLD}QoS Bandwidth & Quota Intelligence:${NC}"
     echo -e "    ${GREEN}qos${NC} [set <mbps>|off|status] Manage Per-IP Bandwidth Speed Shaping"
     echo -e "    ${GREEN}happy-hours${NC} [set <win>|off] Manage Off-Peak Quota Exclusions"
+    echo -e "    ${GREEN}quota-mode${NC} [manager|engine|status] Quota Enforcement Mode (0-disconnect vs strict)"
     echo -e "    ${GREEN}notify-expiry${NC}             Send Telegram Reminders for Expiring Secrets"
     echo -e "    ${GREEN}abuse-watch${NC}               Scan Users for Abnormal Bandwidth Usage"
     echo ""
@@ -13313,6 +13394,10 @@ cli_main() {
 
         happy-hours)
             run_happy_hours "$@"
+            ;;
+
+        quota-mode)
+            run_quota_mode "$@"
             ;;
 
         notify-expiry)
