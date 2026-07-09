@@ -4701,7 +4701,7 @@ _mtproxymax_completion() {
             [ "$COMP_CWORD" -eq 2 ] && COMPREPLY=( $(compgen -W "save list delete apply" -- "${cur}") )
             ;;
         tune)
-            [ "$COMP_CWORD" -eq 2 ] && COMPREPLY=( $(compgen -W "list get set clear" -- "${cur}") )
+            [ "$COMP_CWORD" -eq 2 ] && COMPREPLY=( $(compgen -W "list get set clear fastpath bbr ram cpu" -- "${cur}") )
             ;;
         migrate)
             [ "$COMP_CWORD" -eq 2 ] && COMPREPLY=( $(compgen -W "export import" -- "${cur}") )
@@ -13344,11 +13344,15 @@ cli_main() {
             load_settings
             local sub="${1:-list}"; shift 2>/dev/null || true
             case "$sub" in
-                list|"")  tune_list_params ;;
-                get)      tune_get "$1" ;;
-                set)      tune_set "$1" "$2" ;;
-                clear)    tune_clear "$1" ;;
-                *) log_error "Usage: mtproxymax tune list|get|set|clear"; return 1 ;;
+                list|"")               tune_list_params ;;
+                get)                   tune_get "$1" ;;
+                set)                   tune_set "$1" "$2" ;;
+                clear)                 tune_clear "$1" ;;
+                fastpath|tcp-fastpath) run_tcp_fastpath "$@" ;;
+                bbr|net|tune-net)      run_bbr "$@" ;;
+                ram|ram-tune)          run_ram_tune "$@" ;;
+                cpu|cpu-tune)          run_cpu_tune "$@" ;;
+                *) log_error "Usage: mtproxymax tune list|get|set|clear|fastpath|bbr|ram|cpu"; return 1 ;;
             esac
             ;;
 
