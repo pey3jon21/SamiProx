@@ -7496,41 +7496,65 @@ run_tcp_fastpath() {
     case "$action" in
         on|enable)
             check_root
-            log_info "Activating TCP Fast-Path window scaling, SACK, and MTU probing..."
+            log_info "Activating TCP Fast-Path, High-Concurrency Backlogs, Fast Open, and Mobile Keepalive tuning..."
             sysctl -w net.ipv4.tcp_window_scaling=1 >/dev/null 2>&1 || true
             sysctl -w net.ipv4.tcp_sack=1 >/dev/null 2>&1 || true
             sysctl -w net.ipv4.tcp_mtu_probing=1 >/dev/null 2>&1 || true
             sysctl -w net.ipv4.tcp_timestamps=1 >/dev/null 2>&1 || true
             sysctl -w net.ipv4.tcp_no_metrics_save=1 >/dev/null 2>&1 || true
+            sysctl -w net.core.somaxconn=65535 >/dev/null 2>&1 || true
+            sysctl -w net.ipv4.tcp_max_syn_backlog=65535 >/dev/null 2>&1 || true
+            sysctl -w net.core.netdev_max_backlog=65535 >/dev/null 2>&1 || true
+            sysctl -w net.ipv4.tcp_fastopen=3 >/dev/null 2>&1 || true
+            sysctl -w net.ipv4.tcp_tw_reuse=1 >/dev/null 2>&1 || true
+            sysctl -w net.ipv4.tcp_fin_timeout=15 >/dev/null 2>&1 || true
+            sysctl -w net.ipv4.ip_local_port_range="1024 65535" >/dev/null 2>&1 || true
+            sysctl -w net.ipv4.tcp_keepalive_time=300 >/dev/null 2>&1 || true
+            sysctl -w net.ipv4.tcp_keepalive_intvl=30 >/dev/null 2>&1 || true
+            sysctl -w net.ipv4.tcp_keepalive_probes=5 >/dev/null 2>&1 || true
             mkdir -p /etc/sysctl.d
             cat <<'SYSCTL' > /etc/sysctl.d/99-mtproxymax-fastpath.conf
-# MTProxyMax TCP Fast-Path Optimizations
+# MTProxyMax TCP Fast-Path & High Concurrency Optimizations
 net.ipv4.tcp_window_scaling = 1
 net.ipv4.tcp_sack = 1
 net.ipv4.tcp_mtu_probing = 1
 net.ipv4.tcp_timestamps = 1
 net.ipv4.tcp_no_metrics_save = 1
+net.core.somaxconn = 65535
+net.ipv4.tcp_max_syn_backlog = 65535
+net.core.netdev_max_backlog = 65535
+net.ipv4.tcp_fastopen = 3
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.ip_local_port_range = 1024 65535
+net.ipv4.tcp_keepalive_time = 300
+net.ipv4.tcp_keepalive_intvl = 30
+net.ipv4.tcp_keepalive_probes = 5
 SYSCTL
             sysctl -p /etc/sysctl.d/99-mtproxymax-fastpath.conf >/dev/null 2>&1 || true
             TCP_FASTPATH_ENABLED="true"
             save_settings
-            log_success "TCP Fast-Path Window Scaling & MTU Probing activated!"
+            log_success "TCP Fast-Path, Fast Open, & Mobile Keepalive Optimizations activated!"
             ;;
         off|disable)
             check_root
             rm -f /etc/sysctl.d/99-mtproxymax-fastpath.conf 2>/dev/null
             sysctl -w net.ipv4.tcp_mtu_probing=0 >/dev/null 2>&1 || true
             sysctl -w net.ipv4.tcp_no_metrics_save=0 >/dev/null 2>&1 || true
+            sysctl -w net.ipv4.tcp_fastopen=1 >/dev/null 2>&1 || true
             TCP_FASTPATH_ENABLED="false"
             save_settings
             log_success "TCP Fast-Path optimizations disabled (live kernel parameters restored to standard defaults)."
             ;;
         status|"")
-            echo -e "\n  🏎️ ${BOLD}TCP Fast-Path Window Scaling & MTU Probing:${NC}"
-            local ws sack mtu_probe
+            echo -e "\n  🏎️ ${BOLD}TCP Fast-Path Window Scaling & High-Concurrency Probing:${NC}"
+            local ws sack mtu_probe somax tfo tw
             ws=$(sysctl -n net.ipv4.tcp_window_scaling 2>/dev/null || echo "unknown")
             sack=$(sysctl -n net.ipv4.tcp_sack 2>/dev/null || echo "unknown")
             mtu_probe=$(sysctl -n net.ipv4.tcp_mtu_probing 2>/dev/null || echo "unknown")
+            somax=$(sysctl -n net.core.somaxconn 2>/dev/null || echo "unknown")
+            tfo=$(sysctl -n net.ipv4.tcp_fastopen 2>/dev/null || echo "unknown")
+            tw=$(sysctl -n net.ipv4.tcp_tw_reuse 2>/dev/null || echo "unknown")
             if [ "${TCP_FASTPATH_ENABLED:-false}" = "true" ]; then
                 echo -e "     Status:        ${GREEN}${BOLD}ENABLED${NC}"
             else
@@ -7539,6 +7563,9 @@ SYSCTL
             echo -e "     Window Scale:  ${CYAN}$([ "$ws" = "1" ] && echo "ON" || echo "OFF")${NC}"
             echo -e "     TCP SACK:      ${CYAN}$([ "$sack" = "1" ] && echo "ON" || echo "OFF")${NC}"
             echo -e "     MTU Probing:   ${CYAN}$([ "$mtu_probe" = "1" ] && echo "ON" || echo "OFF")${NC}"
+            echo -e "     SOMAXCONN:     ${CYAN}${somax}${NC}"
+            echo -e "     TCP Fast Open: ${CYAN}$([ "$tfo" = "3" ] && echo "ON (Send+Recv)" || echo "$tfo")${NC}"
+            echo -e "     TIME_WAIT Reuse: ${CYAN}$([ "$tw" = "1" ] && echo "ON" || echo "OFF")${NC}"
             echo -e "  Usage: mtproxymax tcp-fastpath [on|off|status]\n"
             ;;
         *)
@@ -8488,8 +8515,7 @@ upstream_test() {
 # ── Section 9: Container Management ─────────────────────────
 
 is_proxy_running() {
-    docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${CONTAINER_NAME}$" || return 1
-    return 0
+    [ "$(docker inspect -f '{{.State.Running}}' "${CONTAINER_NAME:-mtproxymax}" 2>/dev/null)" = "true" ]
 }
 
 run_proxy_container() {
@@ -9985,7 +10011,7 @@ send_proxy_qr() {
 _esc() { local t="$1"; t="${t//_/\\_}"; t="${t//\*/\\*}"; t="${t//\`/\\\`}"; echo "$t"; }
 
 is_running() {
-    docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^mtproxymax$"
+    is_proxy_running
 }
 
 get_stats() {
@@ -10195,8 +10221,10 @@ except: pass
 _check_tg_role() {
     local cid="$1"
     [ "$cid" = "${TELEGRAM_CHAT_ID:-}" ] && { echo "superadmin"; return; }
-    local r
-    r=$(grep "^${cid}|" "${INSTALL_DIR}/admins.conf" 2>/dev/null | head -1 | cut -d'|' -f2)
+    local r="" _c _role
+    [ -f "${INSTALL_DIR}/admins.conf" ] && while IFS='|' read -r _c _role _; do
+        if [ "$_c" = "$cid" ]; then r="$_role"; break; fi
+    done < "${INSTALL_DIR}/admins.conf"
     echo "${r:-none}"
 }
 
