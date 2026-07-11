@@ -13,22 +13,22 @@ export LC_NUMERIC=C
 # ── Section 1: Initialization ────────────────────────────────
 VERSION="1.3.1"
 SCRIPT_NAME="mtproxymax"
-INSTALL_DIR="/opt/mtproxymax"
-CONFIG_DIR="${INSTALL_DIR}/mtproxy"
-SETTINGS_FILE="${INSTALL_DIR}/settings.conf"
-SECRETS_FILE="${INSTALL_DIR}/secrets.conf"
-STATS_DIR="${INSTALL_DIR}/relay_stats"
-UPSTREAMS_FILE="${INSTALL_DIR}/upstreams.conf"
-BACKUP_DIR="${INSTALL_DIR}/backups"
-CONNECTION_LOG="${INSTALL_DIR}/connection.log"
-INSTANCES_FILE="${INSTALL_DIR}/instances.conf"
-REPLICATION_FILE="${INSTALL_DIR}/replication.conf"
-REPLICATION_SSH_DIR="${INSTALL_DIR}/.ssh"
-VOUCHERS_FILE="${INSTALL_DIR}/vouchers.conf"
-ADMINS_FILE="${INSTALL_DIR}/admins.conf"
-PORTAL_DIR="${INSTALL_DIR}/portal"
-PORTAL_WWW="${PORTAL_DIR}/www"
-PORTAL_DATA="${PORTAL_WWW}/data.json"
+INSTALL_DIR="${INSTALL_DIR:-/opt/mtproxymax}"
+CONFIG_DIR="${CONFIG_DIR:-${INSTALL_DIR}/mtproxy}"
+SETTINGS_FILE="${SETTINGS_FILE:-${INSTALL_DIR}/settings.conf}"
+SECRETS_FILE="${SECRETS_FILE:-${INSTALL_DIR}/secrets.conf}"
+STATS_DIR="${STATS_DIR:-${INSTALL_DIR}/relay_stats}"
+UPSTREAMS_FILE="${UPSTREAMS_FILE:-${INSTALL_DIR}/upstreams.conf}"
+BACKUP_DIR="${BACKUP_DIR:-${INSTALL_DIR}/backups}"
+CONNECTION_LOG="${CONNECTION_LOG:-${INSTALL_DIR}/connection.log}"
+INSTANCES_FILE="${INSTANCES_FILE:-${INSTALL_DIR}/instances.conf}"
+REPLICATION_FILE="${REPLICATION_FILE:-${INSTALL_DIR}/replication.conf}"
+REPLICATION_SSH_DIR="${REPLICATION_SSH_DIR:-${INSTALL_DIR}/.ssh}"
+VOUCHERS_FILE="${VOUCHERS_FILE:-${INSTALL_DIR}/vouchers.conf}"
+ADMINS_FILE="${ADMINS_FILE:-${INSTALL_DIR}/admins.conf}"
+PORTAL_DIR="${PORTAL_DIR:-${INSTALL_DIR}/portal}"
+PORTAL_WWW="${PORTAL_WWW:-${PORTAL_DIR}/www}"
+PORTAL_DATA="${PORTAL_DATA:-${PORTAL_WWW}/data.json}"
 SCANNER_SHIELD_SET="mtp_scanners"
 CONTAINER_NAME="mtproxymax"
 DOCKER_IMAGE_BASE="mtproxymax-telemt"
@@ -1792,7 +1792,7 @@ flush_traffic_to_disk() {
     mkdir -p "$_stats_dir" 2>/dev/null
     # Acquire lock to prevent race with daemon's save_traffic
     exec 9>"${_stats_dir}/.traffic.lock"
-    flock -w 5 9 2>/dev/null || return
+    flock -w 5 9 2>/dev/null || { exec 9>&- 2>/dev/null; return 0; }
 
     # Load existing cumulative totals
     local cum_in=0 cum_out=0
@@ -2013,6 +2013,7 @@ secret_add() {
 
 # Remove a secret
 secret_remove() {
+    [ ${#SECRETS_LABELS[@]} -eq 0 ] && load_secrets
     local label="$1" force="${2:-false}" no_restart="${3:-false}"
 
     local idx=-1
@@ -2309,6 +2310,7 @@ secret_rotate() {
 
 # Enable/disable a secret
 secret_toggle() {
+    [ ${#SECRETS_LABELS[@]} -eq 0 ] && load_secrets
     local label="$1" action="${2:-toggle}"
 
     local idx=-1
@@ -2403,6 +2405,7 @@ get_proxy_link_https() {
 
 # Set per-user limits for a secret
 secret_set_limits() {
+    [ ${#SECRETS_LABELS[@]} -eq 0 ] && load_secrets
     local label="$1" max_conns="${2:-}" max_ips="${3:-}" quota="${4:-}" expires="${5:-}" no_restart="${6:-false}"
 
     local idx=-1
@@ -2606,6 +2609,7 @@ secret_reset_traffic() {
 
 # Show limits for a secret
 secret_show_limits() {
+    [ ${#SECRETS_LABELS[@]} -eq 0 ] && load_secrets
     local label="${1:-}"
 
     if [ -z "$label" ]; then
@@ -4478,8 +4482,10 @@ _TUNE_WHITELIST=(
     "syn_tarpit_secs:rate_limit:^[0-9]+$"
     "cidr_mask_ipv4:rate_limit:^[0-9]+$"
     "cidr_mask_ipv6:rate_limit:^[0-9]+$"
+    "synlimit:rate_limit:^[0-9]+$"
+    "CidrRateLimitKey:rate_limit:^[0-9]+$"
 )
-_TUNE_FILE="${INSTALL_DIR}/tunings.conf"
+_TUNE_FILE="${_TUNE_FILE:-${INSTALL_DIR}/tunings.conf}"
 
 _tune_lookup() {
     local param="$1" entry
@@ -8754,7 +8760,7 @@ reload_proxy_config() {
     generate_telemt_config || { log_error "Config generation failed"; return 1; }
 
     # Flush traffic counters to disk before reload (in case SIGHUP triggers a restart)
-    flush_traffic_to_disk 2>/dev/null
+    flush_traffic_to_disk 2>/dev/null || true
 
     # Signal primary container to reload config (inotify may miss bind-mount changes)
     is_proxy_running && docker kill -s SIGHUP "$CONTAINER_NAME" 2>/dev/null || true
@@ -9562,8 +9568,8 @@ portal_export_data() {
     load_settings
     if [ "${1:-}" != "force" ] && [ "${PORTAL_ENABLED:-false}" != "true" ]; then return 0; fi
     mkdir -p "$PORTAL_WWW" 2>/dev/null || true
-    load_traffic
-    local ip; ip=$(get_cached_ip)
+    _load_all_cumulative_user_stats 2>/dev/null || true
+    local ip; ip=$(get_public_ip)
     local dh=$(domain_to_hex "${PROXY_DOMAIN:-cloudflare.com}")
     local tmp_json=$(_mktemp) || return 0
     
@@ -9581,7 +9587,7 @@ JSON_EOF
         while IFS='|' read -r label secret created enabled _mc _mi _q _ex _notes; do
             [[ "$label" =~ ^# ]] && continue; [ -z "$secret" ] && continue
             local fs="ee${secret}${dh}"
-            local ui=${_cum_user_in["$label"]:-0} uo=${_cum_user_out["$label"]:-0}
+            local ui=${_batch_cum_in["$label"]:-0} uo=${_batch_cum_out["$label"]:-0}
             local total_b=$((ui + uo))
             local q_raw="${_q:-0}"
             local pct=0; [ "$q_raw" -gt 0 ] 2>/dev/null && pct=$(awk -v b="$total_b" -v q="$q_raw" 'BEGIN {printf "%.0f", (q>0 ? b/q*100 : 0)}')
@@ -10185,7 +10191,7 @@ save_traffic() {
     mkdir -p "$_tdir" 2>/dev/null
     # Acquire lock to prevent race with flush_traffic_to_disk
     exec 9>"${_tdir}/.traffic.lock"
-    flock -w 5 9 2>/dev/null || return
+    flock -w 5 9 2>/dev/null || { exec 9>&- 2>/dev/null; return 0; }
     local _tmp=$(mktemp "${_tdir}/.traffic.XXXXXX" 2>/dev/null) || { exec 9>&-; return; }
     chmod 600 "$_tmp"
     echo "${_cum_in}|${_cum_out}" > "$_tmp"
@@ -17207,4 +17213,6 @@ main() {
     cli_main "$@"
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && [ "${MTPROXYMAX_SOURCE_ONLY:-false}" != "true" ]; then
+    main "$@"
+fi
