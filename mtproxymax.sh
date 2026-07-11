@@ -10894,10 +10894,12 @@ save_replication() {
 
     chmod 600 "$tmp"
     # Serialise with sync-timer flock to prevent lost-update races with save_sync_status()
-    exec 201>"/var/lock/mtproxymax-sync.lock"
-    flock -w 5 201 2>/dev/null || { log_error "Could not acquire lock for replication config"; rm -f "$tmp"; exec 201>&-; return 1; }
+    exec 201>"${INSTALL_DIR:-/opt/mtproxymax}/.mtproxymax-sync.lock" 2>/dev/null || true
+    if command -v flock &>/dev/null; then
+        flock -w 5 201 2>/dev/null || { log_error "Could not acquire lock for replication config"; rm -f "$tmp"; exec 201>&- 2>/dev/null; return 1; }
+    fi
     mv "$tmp" "$REPLICATION_FILE"
-    exec 201>&-
+    exec 201>&- 2>/dev/null || true
 }
 
 # Load replication.conf
@@ -11076,7 +11078,7 @@ replication_generate_sync_script() {
 INSTALL_DIR="/opt/mtproxymax"
 SETTINGS_FILE="${INSTALL_DIR}/settings.conf"
 REPLICATION_FILE="${INSTALL_DIR}/replication.conf"
-LOCK_FILE="/var/lock/mtproxymax-sync.lock"
+LOCK_FILE="${INSTALL_DIR}/.mtproxymax-sync.lock"
 
 # Defaults (overridden by load_sync_settings)
 REPLICATION_ENABLED="false"
@@ -11219,11 +11221,13 @@ do_sync() {
 
 main() {
     # Prevent overlapping sync runs
-    exec 200>"${LOCK_FILE}"
-    flock -n 200 || {
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] SKIP: Another sync already running" >> "${REPLICATION_LOG}"
-        exit 0
-    }
+    exec 200>"${LOCK_FILE}" 2>/dev/null || true
+    if command -v flock &>/dev/null; then
+        flock -n 200 || {
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] SKIP: Another sync already running" >> "${REPLICATION_LOG}"
+            exit 0
+        }
+    fi
 
     load_sync_settings
 
