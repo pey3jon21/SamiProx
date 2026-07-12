@@ -611,7 +611,21 @@ mtproxymax secret purge-disabled            # Permanently purge disabled/expired
 mtproxymax secret sub                       # Generate Base64 subscription link feed
 mtproxymax secret export-json               # Export user database formatted as JSON
 mtproxymax secret rename-prefix <old> <new> # Bulk rename labels matching prefix
+mtproxymax secret adtag <label> <tag|clear> # Set per-secret Telegram promotion ad-tag
 ```
+
+---
+
+### 📣 Per-Secret Telegram AdTags (`@MTProxybot`)
+
+Host multiple communities or customers on a single server without running separate instances or ports. Assign unique 32-hex character promotion channel tags (`ad_tag` from `@MTProxybot`) to individual proxy secrets while keeping a global fallback tag for others:
+
+```bash
+mtproxymax secret adtag alice 0123456789abcdef0123456789abcdef  # Assign custom promotion tag
+mtproxymax secret adtag bob clear                               # Revert to global default tag
+```
+
+Also available in **TUI: Secrets > [b] Set/clear per-secret AdTag**.
 
 ---
 
@@ -950,6 +964,7 @@ mtproxymax secret purge-disabled        # Permanently purge disabled/expired
 mtproxymax secret rename-prefix <o> <n> # Bulk rename matching prefix
 mtproxymax secret note <label> [text]   # Attach notes/description
 mtproxymax secret logs <label> [lines]  # Per-user activity log
+mtproxymax secret adtag <label> <tag|clear> # Per-secret Telegram ad-tag
 ```
 
 **Limits & Quotas:**
