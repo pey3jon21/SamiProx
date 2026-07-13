@@ -490,6 +490,108 @@ mtproxymax upstream add remote socks5 my-proxy.example.com:1080 user pass 50
 
 Supports **SOCKS5** (with auth), **SOCKS4**, and **direct** routing with weight-based load balancing. Addresses can be IPs or hostnames.
 
+<br>
+
+<details>
+<summary><b>📖 Comprehensive Guide: How to Route MTProto Traffic through V2Ray, Xray, Sing-box, WARP, or Master DNS</b></summary>
+
+<br>
+
+Route your outgoing Telegram (`MTProto`) traffic through upstream proxy cores (V2Ray, Xray, Sing-box, 3X-UI panels, Cloudflare WARP, or SSH tunnels) to bypass IP filtering, avoid local datacenter blocks, or chain proxy connections.
+
+#### 1️⃣ Architecture & How it Works
+When an upstream proxy is configured, the `Telemt` engine intercepts user connections and forwards the upstream `MTProto` handshakes directly through your local/remote SOCKS5/SOCKS4 proxy instead of sending them directly from the server's public IP.
+
+```text
+┌─────────────────┐       MTProto        ┌──────────────────┐      SOCKS5 Tunnel     ┌───────────────────────┐       MTProto        ┌──────────────────┐
+│ Telegram Client ├─────────────────────►│ MTProxyMax Core  ├───────────────────────►│ Local V2Ray/Xray Core │─────────────────────►│ Telegram Servers │
+│   (App/Desktop) │    inbound :443      │ (Telemt Engine)  │     127.0.0.1:1080     │  (Outbound to Relay)  │  Bypasses IP Blocks  │ (149.154.xxx.xx) │
+└─────────────────┘                      └──────────────────┘                        └───────────────────────┘                      └──────────────────┘
+```
+
+#### 2️⃣ Step-by-Step Setup
+
+##### Step A: Create an Inbound SOCKS5 Listener on your Proxy Engine
+Before `MTProxyMax` can forward traffic, your proxy core must listen on a local port (e.g., `1080` on `127.0.0.1`).
+
+* **In V2Ray / Xray / Sing-box (`config.json`):**
+  Add a `socks` protocol inbound alongside your existing inbound configurations:
+  ```json
+  {
+    "inbounds": [
+      {
+        "port": 1080,
+        "listen": "127.0.0.1",
+        "protocol": "socks",
+        "settings": {
+          "auth": "noauth",
+          "udp": true
+        },
+        "tag": "socks-inbound"
+      }
+    ]
+  }
+  ```
+  *(If your V2Ray/Xray config routes specific tags to specific outbounds, make sure routing rules direct `"socks-inbound"` to your preferred relay outbound).*
+
+* **In 3X-UI / X-UI Panels:**
+  1. Go to **Inbounds** → Click **Add Inbound**.
+  2. **Protocol:** Select `SOCKS`.
+  3. **Listen IP:** Enter `127.0.0.1` (so it only accepts local traffic from MTProxyMax).
+  4. **Port:** Enter `1080` (or any custom port).
+  5. **Authentication:** Leave blank (or set a username/password if desired).
+  6. Click **Create** and ensure the core restarts cleanly.
+
+* **With Cloudflare WARP (`wireproxy` / `warp-cli`):**
+  If running WARP locally on port `40000`, MTProxyMax can route directly into it: `127.0.0.1:40000`.
+
+* **With SSH Tunneling (Remote Relay):**
+  Create an encrypted local SOCKS5 tunnel pointing to a clean upstream VPS:
+  ```bash
+  ssh -f -N -D 127.0.0.1:1080 -o ServerAliveInterval=60 user@clean-vps-ip.example.com
+  ```
+
+##### Step B: Connect MTProxyMax to the Upstream Listener
+Once your SOCKS5 port (`127.0.0.1:1080`) is ready, connect `MTProxyMax` to it using the CLI or the interactive terminal menu:
+
+* **Method 1: Terminal CLI (Recommended)**
+  ```bash
+  # Command syntax:
+  # mtproxymax upstream add <label> <socks5|socks4|direct> <host:port> [username] [password] [weight] [interface]
+  
+  # Example 1: Local unauthenticated SOCKS5 proxy (V2Ray / X-UI)
+  mtproxymax upstream add v2ray-tunnel socks5 127.0.0.1:1080 "" "" 10
+
+  # Example 2: Local authenticated SOCKS5 proxy
+  mtproxymax upstream add secure-relay socks5 127.0.0.1:1080 myuser mypass 10
+
+  # Example 3: Route 30% of traffic via WARP and 70% via direct IP (Load Balancing)
+  mtproxymax upstream add direct-route direct - - - 70
+  mtproxymax upstream add warp-route socks5 127.0.0.1:40000 "" "" 30
+  ```
+
+* **Method 2: Interactive TUI Menu**
+  1. Run `mtproxymax` in your terminal.
+  2. Press `[r]` to open **Upstream Proxy / Outbound Routing**.
+  3. Select **Add Upstream**.
+  4. Enter your label (`v2ray-tunnel`), type (`socks5`), and address (`127.0.0.1:1080`).
+
+##### Step C: Verify & Test Connectivity
+After adding an upstream, test live latency and check active routing chains:
+```bash
+# View all registered upstreams and their weights
+mtproxymax upstream list
+
+# Perform a real-time TCP/MTProto handshake test over the upstream
+mtproxymax upstream test v2ray-tunnel
+```
+
+#### 3️⃣ Pro-Tips & Autonomous Health Watchdog
+* **Autonomous Failover (`mtproxymax failover on`):** Enable our built-in watchdog! If your V2Ray/WARP upstream drops or experiences high packet loss, `MTProxyMax` will automatically detect the failure within 30 seconds and failover cleanly to backup upstreams or direct routing without dropping active user connections.
+* **MasterDNS & Custom Resolvers:** If your upstream uses a custom DNS or MasterDNS configuration, MTProxyMax automatically uses `socks5h://` protocol internally when resolving remote Telegram datacenter IPs through your SOCKS5 chain, ensuring full compatibility with remote DNS resolvers.
+
+</details>
+
 ---
 
 ### 📊 Real-Time Traffic Monitoring
