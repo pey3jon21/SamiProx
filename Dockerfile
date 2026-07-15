@@ -11,8 +11,5 @@ RUN curl -fsSL https://raw.githubusercontent.com/SamNet-dev/MTProxyMax/main/mtpr
     chmod +x /usr/local/bin/mtproxymax
 ENV PATH="/usr/local/bin:${PATH}"
 
-# ایجاد یک فایل لاگ برای ذخیره خروجی
-RUN touch /var/log/mtproxymax.log
-
-# اجرای پروکسی به عنوان فرآیند اصلی (دائمی)
-CMD ["sh", "-c", "mtproxymax start > /var/log/mtproxymax.log 2>&1"]
+# نصب خودکار (در صورت نیاز) و سپس اجرای سرویس
+CMD ["sh", "-c", "mtproxymax install && mtproxymax start"]
