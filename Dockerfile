@@ -10,8 +10,9 @@ WORKDIR /app
 RUN curl -fsSL https://raw.githubusercontent.com/SamNet-dev/MTProxyMax/main/mtproxymax.sh -o /usr/local/bin/mtproxymax && \
     chmod +x /usr/local/bin/mtproxymax
 ENV PATH="/usr/local/bin:${PATH}"
-# کپی اسکریپت ورودی
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-# اجرای اسکریپت ورودی به عنوان دستور پیش‌فرض
-ENTRYPOINT ["/entrypoint.sh"]
+
+# ایجاد یک فایل لاگ برای ذخیره خروجی
+RUN touch /var/log/mtproxymax.log
+
+# اجرای پروکسی به عنوان فرآیند اصلی (دائمی)
+CMD ["sh", "-c", "mtproxymax start > /var/log/mtproxymax.log 2>&1"]
