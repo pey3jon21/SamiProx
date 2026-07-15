@@ -26,4 +26,4 @@ RUN curl -fsSL https://raw.githubusercontent.com/SamNet-dev/MTProxyMax/main/mtpr
 ENV PATH="/usr/local/bin:${PATH}"
 
 # دستور پیش‌فرض برای اجرای bash (تا کنسول کار کند)
-CMD ["bash"]
+CMD ["mtproxymax", "start"]
