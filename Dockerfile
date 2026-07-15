@@ -10,8 +10,8 @@ WORKDIR /app
 RUN curl -fsSL https://raw.githubusercontent.com/SamNet-dev/MTProxyMax/main/mtproxymax.sh -o /usr/local/bin/mtproxymax && \
     chmod +x /usr/local/bin/mtproxymax
 ENV PATH="/usr/local/bin:${PATH}"
-# کپی فایل entrypoint به داخل کانتینر و قابل اجرا کردن آن
+# کپی اسکریپت ورودی
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
-# استفاده از entrypoint به عنوان دستور پیش‌فرض
+# اجرای اسکریپت ورودی به عنوان دستور پیش‌فرض
 ENTRYPOINT ["/entrypoint.sh"]
